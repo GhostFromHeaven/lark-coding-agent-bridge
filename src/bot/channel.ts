@@ -70,6 +70,7 @@ import { fetchQuotedContext, type QuotedContext } from './quote';
 import { addWorkingReaction, removeReaction } from './reaction';
 import { fetchKnownChats } from './lark-info';
 import { ChatRegistryStore } from './chat-registry';
+import { resolveUserNames } from './user-names';
 import type { AppPaths } from '../config/app-paths';
 
 const DEBOUNCE_MS = 600;
@@ -278,6 +279,7 @@ export async function startChannel(deps: StartChannelDeps): Promise<BridgeChanne
           scope,
           mode,
           ledger,
+          chatRegistry,
         });
       } catch (err) {
         log.fail('flush', err);
@@ -642,6 +644,7 @@ interface RunBatchDeps {
   scope: string;
   mode: ChatMode;
   ledger?: LedgerStore;
+  chatRegistry?: ChatRegistryStore;
 }
 
 async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
@@ -659,6 +662,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
     scope,
     mode,
     ledger,
+    chatRegistry,
   } = deps;
   if (batch.length === 0) return;
   const firstMsg = batch[0];
@@ -710,7 +714,19 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
     }
   }
 
-  const prompt = buildPrompt(batch, attachments, quotes, channel.botIdentity);
+  // Message events carry only sender ids — resolve display names once per
+  // batch (cached) so the prompt context, the ledger, and the p2p registry
+  // entry all agree on who sent this.
+  const senderNames = await resolveUserNames(
+    channel,
+    batch.map((m) => m.senderId),
+  );
+  const senderName = firstMsg.senderName ?? senderNames.get(firstMsg.senderId);
+  // For p2p chats the peer's display name is the chat's name — mirror it into
+  // the on-disk registry (listChats never returns p2p chats).
+  if (mode === 'p2p' && senderName) chatRegistry?.upsertP2p(chatId, senderName);
+
+  const prompt = buildPrompt(batch, attachments, quotes, channel.botIdentity, senderNames);
   log.info('prompt', 'built', { promptChars: prompt.length, quotes: quotes.length });
 
   // Thread the reply when policy says so: topic groups (when the message is
@@ -1026,7 +1042,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
       ledger.record({
         id: execution.runId,
         openId: firstMsg.senderId,
-        ...(firstMsg.senderName ? { name: firstMsg.senderName } : {}),
+        ...(senderName ? { name: senderName } : {}),
         chatId,
         chatKind: mode,
         ...(chatDisplayName !== undefined ? { chatName: chatDisplayName } : {}),
@@ -1474,6 +1490,7 @@ function buildPrompt(
   attachments: LocalAttachment[],
   quotes: QuotedContext[] = [],
   botIdentity?: { openId: string; name?: string },
+  senderNames?: Map<string, string>,
 ): string {
   const first = batch[0];
   if (!first) return '';
@@ -1498,6 +1515,7 @@ function buildPrompt(
         : '（对方发来一条没有正文的消息——通常是只 @ 了你的唤醒（ping）。请简短回应。）';
 
   const senderType = senderTypeOf(first);
+  const senderName = first.senderName ?? senderNames?.get(first.senderId);
   const mentions = mergeMentions(batch);
 
   return buildAgentPrompt({
@@ -1505,7 +1523,7 @@ function buildPrompt(
       chatId: first.chatId,
       chatType: first.chatType,
       senderId: first.senderId,
-      ...(first.senderName ? { senderName: first.senderName } : {}),
+      ...(senderName ? { senderName } : {}),
       ...(senderType ? { senderType } : {}),
       ...(botIdentity?.openId ? { botOpenId: botIdentity.openId } : {}),
       ...(mentions.length > 0 ? { mentions } : {}),

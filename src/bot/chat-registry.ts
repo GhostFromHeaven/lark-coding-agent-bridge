@@ -3,9 +3,16 @@ import { log } from '../core/logger';
 import { writeFileAtomic } from '../platform/atomic-write';
 import type { KnownChat } from './lark-info';
 
+interface ChatRegistryEntry {
+  id: string;
+  name: string;
+  /** Set for entries added via {@link ChatRegistryStore.upsertP2p} — kept across listChats refreshes. */
+  p2p?: true;
+}
+
 interface ChatRegistryData {
   updatedAt: number;
-  chats: KnownChat[];
+  chats: ChatRegistryEntry[];
 }
 
 /**
@@ -38,7 +45,7 @@ export class ChatRegistryStore {
         updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0,
         chats: Array.isArray(parsed.chats)
           ? parsed.chats.filter(
-              (c): c is KnownChat =>
+              (c): c is ChatRegistryEntry =>
                 !!c && typeof c === 'object' && typeof c.id === 'string' && typeof c.name === 'string',
             )
           : [],
@@ -52,9 +59,26 @@ export class ChatRegistryStore {
     return this.data.chats.find((c) => c.id === chatId)?.name;
   }
 
-  /** Replace the whole snapshot (listChats is authoritative). */
+  /** Replace the whole snapshot (listChats is authoritative for group chats; p2p entries survive). */
   replaceAll(chats: KnownChat[], updatedAt: number = Date.now()): void {
-    this.data = { updatedAt, chats: chats.map((c) => ({ id: c.id, name: c.name })) };
+    const refreshed = chats.map((c) => ({ id: c.id, name: c.name }));
+    const refreshedIds = new Set(refreshed.map((c) => c.id));
+    // listChats never returns p2p chats — keep upserted p2p entries so the
+    // registry stays a complete id→name mirror for external readers.
+    const p2pEntries = this.data.chats.filter((c) => c.p2p && !refreshedIds.has(c.id));
+    this.data = { updatedAt, chats: [...refreshed, ...p2pEntries] };
+    this.schedulePersist();
+  }
+
+  /** Add or update a p2p chat entry (id → the peer user's display name). */
+  upsertP2p(id: string, name: string): void {
+    const existing = this.data.chats.find((c) => c.id === id);
+    if (existing) {
+      existing.name = name;
+      existing.p2p = true;
+    } else {
+      this.data.chats.push({ id, name, p2p: true });
+    }
     this.schedulePersist();
   }
 
