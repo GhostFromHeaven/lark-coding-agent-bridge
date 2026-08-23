@@ -140,6 +140,36 @@ describe('LedgerStore', () => {
     expect(s.byUser[0]?.openId).toBe('ou_a');
   });
 
+
+  it('records and round-trips the chat display name (chatName)', async () => {
+    const path = await tmpFile();
+    const store = new LedgerStore(path);
+    store.record({
+      id: 'run-9',
+      openId: 'ou_a',
+      name: 'Alice',
+      chatId: 'oc_group',
+      chatKind: 'group',
+      chatName: '项目讨论群',
+      at: 1000,
+    });
+    await store.flush();
+
+    const raw = JSON.parse(await readFile(path, 'utf8'));
+    expect(raw[0].chatName).toBe('项目讨论群');
+
+    const reloaded = new LedgerStore(path);
+    await reloaded.load();
+    expect(reloaded.all()[0]?.chatName).toBe('项目讨论群');
+  });
+
+  it('omits chatName when not provided', async () => {
+    const store = new LedgerStore(await tmpFile());
+    store.record({ id: 'r1', openId: 'ou_a', chatId: 'oc', chatKind: 'p2p', at: 1 });
+    await store.flush();
+    expect(store.all()[0]).not.toHaveProperty('chatName');
+  });
+
   it('survives a corrupt ledger file by starting empty', async () => {
     const path = await tmpFile();
     const { writeFile } = await import('node:fs/promises');

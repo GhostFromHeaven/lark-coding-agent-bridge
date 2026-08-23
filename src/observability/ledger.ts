@@ -19,6 +19,9 @@ export interface LedgerEntry {
   name?: string;
   chatId: string;
   chatKind: ChatKind;
+  /** The chat's display name (group name; p2p counterpart's user name when
+   * known). Distinct from `name`, which is the requesting user's name. */
+  chatName?: string;
   inputTokens?: number;
   outputTokens?: number;
   costUsd?: number;
@@ -35,6 +38,7 @@ export interface RecordInteractionInput {
   name?: string;
   chatId: string;
   chatKind: ChatKind;
+  chatName?: string;
   inputTokens?: number;
   outputTokens?: number;
   costUsd?: number;
@@ -117,6 +121,7 @@ export class LedgerStore {
       ...(input.name !== undefined ? { name: input.name } : {}),
       chatId: input.chatId,
       chatKind: input.chatKind,
+      ...(input.chatName !== undefined ? { chatName: input.chatName } : {}),
       ...(input.inputTokens !== undefined ? { inputTokens: input.inputTokens } : {}),
       ...(input.outputTokens !== undefined ? { outputTokens: input.outputTokens } : {}),
       ...(input.costUsd !== undefined ? { costUsd: input.costUsd } : {}),

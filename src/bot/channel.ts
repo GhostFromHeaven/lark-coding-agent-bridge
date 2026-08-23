@@ -69,6 +69,7 @@ import { ProcessPool } from './process-pool';
 import { fetchQuotedContext, type QuotedContext } from './quote';
 import { addWorkingReaction, removeReaction } from './reaction';
 import { fetchKnownChats } from './lark-info';
+import { ChatRegistryStore } from './chat-registry';
 import type { AppPaths } from '../config/app-paths';
 
 const DEBOUNCE_MS = 600;
@@ -175,7 +176,7 @@ export interface StartChannelDeps {
   workspaces: WorkspaceStore;
   controls: Controls;
   ledger?: LedgerStore;
-  appPaths?: Pick<AppPaths, 'secretsFile' | 'keystoreSaltFile' | 'mediaDir'>;
+  appPaths?: Pick<AppPaths, 'secretsFile' | 'keystoreSaltFile' | 'mediaDir' | 'chatsFile'>;
 }
 
 export async function startChannel(deps: StartChannelDeps): Promise<BridgeChannel> {
@@ -404,7 +405,13 @@ export async function startChannel(deps: StartChannelDeps): Promise<BridgeChanne
     appId: cfg.accounts.app.id,
   });
   await ownerRefresh.start();
-  const knownChatsRefresh = startKnownChatsRefreshTimer(channel, controls);
+  // On-disk mirror of known chats so external readers (admin dashboard) can
+  // resolve chat display names without calling the Feishu API.
+  const chatRegistry = deps.appPaths?.chatsFile
+    ? new ChatRegistryStore(deps.appPaths.chatsFile)
+    : undefined;
+  await chatRegistry?.load().catch(() => {});
+  const knownChatsRefresh = startKnownChatsRefreshTimer(channel, controls, chatRegistry);
 
   const identity = channel.botIdentity;
   // Late-bind the bot's own IM identity into the agent adapter so the system
@@ -452,6 +459,7 @@ export async function startChannel(deps: StartChannelDeps): Promise<BridgeChanne
         sessions.flush(),
         sessionCatalog?.flush(),
         callbackNonceStore?.flush(),
+        chatRegistry?.flush(),
         workspaces.flush(),
       ]);
       if (stopAllResult.status === 'rejected') {
@@ -472,12 +480,14 @@ export async function startChannel(deps: StartChannelDeps): Promise<BridgeChanne
 function startKnownChatsRefreshTimer(
   channel: LarkChannel,
   controls: Controls,
+  chatRegistry?: ChatRegistryStore,
 ): { stop(): void } {
   const intervalMs = 30 * 60 * 1000;
   const refresh = async (): Promise<void> => {
     const chats = await fetchKnownChats(channel);
     if (chats.length > 0) {
       controls.knownChats = chats;
+      chatRegistry?.replaceAll(chats);
     }
   };
   void refresh();
@@ -1004,6 +1014,9 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
     scheduleWorkingReactionCleanup(channel, lastMsg.messageId, reactionPromise);
     if (ledger) {
       const usage = finalRunState.usage;
+      // Chat display name from the in-memory known-chats snapshot (group name
+      // for group/topic chats). Distinct from `name` (the requesting user).
+      const chatDisplayName = controls.knownChats?.find((c) => c.id === chatId)?.name;
       // Wait briefly for the reply message id (needed to attribute reactions);
       // don't hang the queue if the stream never surfaced one.
       const replyMessageId = await Promise.race([
@@ -1016,6 +1029,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
         ...(firstMsg.senderName ? { name: firstMsg.senderName } : {}),
         chatId,
         chatKind: mode,
+        ...(chatDisplayName !== undefined ? { chatName: chatDisplayName } : {}),
         ...(usage?.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
         ...(usage?.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
         ...(usage?.costUsd !== undefined ? { costUsd: usage.costUsd } : {}),

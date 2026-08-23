@@ -16,6 +16,8 @@ export interface AppPaths {
   sessionsFile: string;
   workspacesFile: string;
   ledgerFile: string;
+  /** On-disk mirror of known chats (id → display name) for external readers. */
+  chatsFile: string;
   secretsFile: string;
   keystoreSaltFile: string;
   secretsGetterScript: string;
@@ -51,6 +53,7 @@ export function resolveAppPaths(opts: ResolveAppPathsOptions = {}): AppPaths {
     sessionsFile: join(profileDir, 'sessions.json'),
     workspacesFile: join(profileDir, 'workspaces.json'),
     ledgerFile: join(profileDir, 'ledger.json'),
+    chatsFile: join(profileDir, 'chats.json'),
     secretsFile: join(profileDir, 'secrets.enc'),
     keystoreSaltFile: join(profileDir, '.keystore.salt'),
     secretsGetterScript: join(rootDir, 'secrets-getter'),
