@@ -29,8 +29,8 @@ const base = {
   allowedChats: [],
   allowedGroups: [],
   admins: [],
-  knownChats: new Map(),
-  larkCliIdentity: 'app-only',
+  knownChats: [],
+  larkCliIdentity: 'bot-only',
   replyInThreadInGroup: false,
   claudeDriver: 'pty',
 } as Parameters<typeof configFormCard>[0];
