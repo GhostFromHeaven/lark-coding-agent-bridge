@@ -427,6 +427,13 @@ async function handleCd(args: string, ctx: CommandContext): Promise<void> {
     return;
   }
   ctx.activeRuns.interrupt(ctx.scope);
+  // 切走前归档旧 cwd 下的 catalog 条目，否则「session 已重置」后旧条目永远停在 active
+  if (ctx.sessionCatalog && ctx.sessionCatalogIdentity) {
+    ctx.sessionCatalog.archiveActive({
+      ...ctx.sessionCatalogIdentity,
+      now: Date.now(),
+    });
+  }
   ctx.workspaces.setCwd(ctx.scope, workspace.cwdRealpath);
   await releasePreviousClaudeSession(ctx, ctx.scope);
   ctx.sessions.clear(ctx.scope);
@@ -493,6 +500,13 @@ async function handleWsUse(name: string, ctx: CommandContext): Promise<void> {
     return;
   }
   ctx.activeRuns.interrupt(ctx.scope);
+  // 切走前归档旧 cwd 下的 catalog 条目，否则「session 已重置」后旧条目永远停在 active
+  if (ctx.sessionCatalog && ctx.sessionCatalogIdentity) {
+    ctx.sessionCatalog.archiveActive({
+      ...ctx.sessionCatalogIdentity,
+      now: Date.now(),
+    });
+  }
   ctx.workspaces.setCwd(ctx.scope, workspace.cwdRealpath);
   await releasePreviousClaudeSession(ctx, ctx.scope);
   ctx.sessions.clear(ctx.scope);

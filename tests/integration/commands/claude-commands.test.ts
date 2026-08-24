@@ -6,6 +6,7 @@ import type { NormalizedMessage } from '@larksuite/channel';
 import { ActiveRuns } from '../../../src/bot/active-runs.js';
 import { tryHandleCommand, type CommandContext, type Controls } from '../../../src/commands/index.js';
 import { createDefaultProfileConfig, type ProfileConfig } from '../../../src/config/profile-schema.js';
+import { SessionCatalog, type SessionCatalogIdentity } from '../../../src/session/catalog.js';
 import { SessionStore } from '../../../src/session/store.js';
 import { WorkspaceStore } from '../../../src/workspace/store.js';
 import { createFakeAgent, type FakeAgentRun } from '../../helpers/fake-agent.js';
@@ -20,8 +21,9 @@ interface Harness {
   activeRuns: ActiveRuns;
   agent: ReturnType<typeof createFakeAgent>;
   controls: Controls;
+  sessionCatalog: SessionCatalog;
   cleanup(): Promise<void>;
-  run(content: string): Promise<boolean>;
+  run(content: string, options?: { sessionCatalogIdentity?: SessionCatalogIdentity }): Promise<boolean>;
 }
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -76,6 +78,46 @@ describe('Claude slash command visible behavior', () => {
     expect(lastMarkdown(h.channel)).toContain(`已切换 cwd 到 \`${workspaceRealpath}\``);
     expect(h.workspaces.cwdFor('chat-1')).toBe(workspaceRealpath);
     expect(h.sessions.getRaw('chat-1')).toBeUndefined();
+  });
+
+  it('archives the old catalog entry when /cd switches workspace', async () => {
+    const h = await createHarness();
+    const oldDir = await mkdir(join(h.tmp.workspace, 'old-ws'), { recursive: true })
+      .then(() => realpath(join(h.tmp.workspace, 'old-ws')));
+    const identity: SessionCatalogIdentity = {
+      scopeId: 'chat-1',
+      agentId: 'claude',
+      cwdRealpath: oldDir,
+      policyFingerprint: 'fp-cd-old',
+    };
+    h.sessionCatalog.upsertActive({ ...identity, sessionId: 'sess-cd-old', now: 1000 });
+
+    await expect(h.run('/cd relative', { sessionCatalogIdentity: identity })).resolves.toBe(true);
+    expect(h.sessionCatalog.entries().find((e) => e.policyFingerprint === 'fp-cd-old')?.status).toBe('active');
+
+    await expect(h.run(`/cd ${h.tmp.workspace}`, { sessionCatalogIdentity: identity })).resolves.toBe(true);
+    expect(h.sessionCatalog.entries().find((e) => e.policyFingerprint === 'fp-cd-old')?.status).toBe('archived');
+  });
+
+  it('archives the old catalog entry when /ws use switches workspace', async () => {
+    const h = await createHarness();
+    h.workspaces.setCwd('chat-1', h.tmp.workspace);
+    await expect(h.run('/ws save main')).resolves.toBe(true);
+
+    const oldDir = await mkdir(join(h.tmp.workspace, 'old-ws'), { recursive: true })
+      .then(() => realpath(join(h.tmp.workspace, 'old-ws')));
+    h.workspaces.setCwd('chat-1', oldDir);
+    const identity: SessionCatalogIdentity = {
+      scopeId: 'chat-1',
+      agentId: 'claude',
+      cwdRealpath: oldDir,
+      policyFingerprint: 'fp-ws-old',
+    };
+    h.sessionCatalog.upsertActive({ ...identity, sessionId: 'sess-ws-old', now: 1000 });
+
+    await expect(h.run('/ws use main', { sessionCatalogIdentity: identity })).resolves.toBe(true);
+    expect(h.workspaces.cwdFor('chat-1')).toBe(await realpath(h.tmp.workspace));
+    expect(h.sessionCatalog.entries().find((e) => e.policyFingerprint === 'fp-ws-old')?.status).toBe('archived');
   });
 
   it('handles /ws list, save, use, and remove', async () => {
@@ -317,6 +359,8 @@ async function createHarness(): Promise<Harness> {
   const channel = createFakeChannel();
   const sessions = new SessionStore(`${tmp.profile}/sessions.json`);
   const workspaces = new WorkspaceStore(`${tmp.profile}/workspaces.json`);
+  const sessionCatalog = new SessionCatalog(`${tmp.profile}/sessions.json.catalog.json`);
+  await sessionCatalog.load();
   const activeRuns = new ActiveRuns();
   const agent = createFakeAgent();
   const profileConfig = appConfig(tmp.workspace);
@@ -333,7 +377,7 @@ async function createHarness(): Promise<Harness> {
     processId: 'proc-1',
   } satisfies Controls;
 
-  const run = (content: string): Promise<boolean> =>
+  const run = (content: string, options?: { sessionCatalogIdentity?: SessionCatalogIdentity }): Promise<boolean> =>
     tryHandleCommand({
       channel: channel as unknown as CommandContext['channel'],
       msg: message(content),
@@ -344,15 +388,18 @@ async function createHarness(): Promise<Harness> {
       agent,
       activeRuns,
       controls,
+      ...(options?.sessionCatalogIdentity
+        ? { sessionCatalog, sessionCatalogIdentity: options.sessionCatalogIdentity }
+        : {}),
     });
 
   const cleanup = async (): Promise<void> => {
-    await Promise.all([sessions.flush(), workspaces.flush()]);
+    await Promise.all([sessions.flush(), workspaces.flush(), sessionCatalog.flush()]);
     await tmp.cleanup();
   };
   cleanups.push(cleanup);
 
-  return { tmp, channel, sessions, workspaces, activeRuns, agent, controls, cleanup, run };
+  return { tmp, channel, sessions, workspaces, activeRuns, agent, controls, sessionCatalog, cleanup, run };
 }
 
 function appConfig(defaultWorkspace: string): ProfileConfig {
