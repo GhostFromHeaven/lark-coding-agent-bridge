@@ -30,6 +30,18 @@ export interface PtySessionOptions {
    * cadence from the first threshold.
    */
   idleCheckpointsMs?: readonly number[];
+  /**
+   * How long the JSONL may stay empty after the prompt's trailing Enter before
+   * we re-send Enter (ms). claude's TUI treats the prompt's byte burst as a
+   * paste; an Enter landing inside that paste window is absorbed as a newline
+   * instead of submitting, leaving the message sitting in the composer forever.
+   * Any JSONL entry confirms submission and stops the retries; re-sending
+   * Enter is otherwise harmless (Enter on an empty composer is a no-op, on a
+   * pending paste it submits). Default 2000ms. 0 ⇒ disabled.
+   */
+  submitRetryMs?: number;
+  /** Max Enter re-sends per turn (see submitRetryMs). Default 3. */
+  submitMaxRetries?: number;
   /** Quiet-window required for first-turn readiness. Default 1000ms. */
   readinessQuietMs?: number;
   /** Max wait for first-turn readiness. Default 30000ms. */
@@ -87,6 +99,11 @@ const DEFAULT_IDLE_CHECKPOINTS_MS: readonly number[] = [
 ] as const;
 const READINESS_MAX_MS = 30_000;
 const READINESS_QUIET_MS = 1_000;
+// Submission watchdog: if the JSONL is still empty this long after the
+// prompt's trailing Enter, assume the Enter was absorbed into the paste
+// buffer and press it again (up to DEFAULT_SUBMIT_MAX_RETRIES times).
+const DEFAULT_SUBMIT_RETRY_MS = 2_000;
+const DEFAULT_SUBMIT_MAX_RETRIES = 3;
 // Default hard hang ceiling: 15 min of JSONL silence with no tool in flight is
 // treated as "presumed hung" and ends the turn (failed) so the chat can't lock
 // forever. Sits just past the 2nd idle checkpoint (3min → 13min).
@@ -352,6 +369,14 @@ export class PtySession {
       this.opts.pty.write('\r');
 
       const pollMs = this.opts.pollMs ?? DEFAULT_POLL_MS;
+      // Submission watchdog (see submitRetryMs): until the first JSONL entry
+      // confirms the prompt actually went through, periodically re-press
+      // Enter in case the original one was absorbed by the paste buffer.
+      const submitRetryMs = this.opts.submitRetryMs ?? DEFAULT_SUBMIT_RETRY_MS;
+      const submitMaxRetries = this.opts.submitMaxRetries ?? DEFAULT_SUBMIT_MAX_RETRIES;
+      let submitConfirmed = false;
+      let submitRetries = 0;
+      let nextSubmitRetryAt = Date.now() + submitRetryMs;
       const checkpointDeltas = this.opts.idleCheckpointsMs ?? DEFAULT_IDLE_CHECKPOINTS_MS;
       let firedCheckpoints = 0;
       let nextCheckpointAt = Date.now() + checkpointDeltas[0]!;
@@ -393,9 +418,24 @@ export class PtySession {
         }
         const { entries } = await this.reader.readNew();
         if (entries.length > 0) {
+          submitConfirmed = true;
           this.lastEntryAt = Date.now();
           hangBaseline = Date.now();
           restartCheckpointCadence();
+        } else if (
+          !submitConfirmed &&
+          submitRetryMs > 0 &&
+          submitRetries < submitMaxRetries &&
+          Date.now() >= nextSubmitRetryAt
+        ) {
+          submitRetries += 1;
+          nextSubmitRetryAt = Date.now() + submitRetryMs;
+          log.warn('agent', 'claude-prompt-resubmit', {
+            sessionId,
+            attempt: submitRetries,
+            sinceTurnStartMs: Date.now() - turnStartedAt,
+          });
+          this.opts.pty.write('\r');
         }
         for (const e of entries) {
           for (const ev of this.translator.translate(e)) {

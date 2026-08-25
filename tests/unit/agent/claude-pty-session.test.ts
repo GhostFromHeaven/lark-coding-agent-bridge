@@ -129,6 +129,132 @@ describe('PtySession', () => {
     expect(stub.writes[1]).toBe('\r');
   });
 
+  it('re-sends Enter when the JSONL shows no activity after submit (paste-absorbed race)', async () => {
+    const cwd = '/Users/me/proj';
+    const sessionId = 'sess-resubmit';
+    const home = await makeJsonlHome(cwd, sessionId);
+    const stub = createStubPty();
+    const jsonl = join(home, '.claude', 'projects', encodeCwdForClaudeProjects(cwd), `${sessionId}.jsonl`);
+    const session = new PtySession({
+      pty: stub.handle,
+      cwd,
+      sessionId,
+      home,
+      pollMs: 5,
+      promptDelayMs: 1,
+      readinessQuietMs: 0,
+      submitRetryMs: 30,
+    });
+
+    // Simulate the wedge: nothing lands in the JSONL until a *second* Enter
+    // arrives (the first one was absorbed into the paste buffer).
+    const unsubscribeProbe = setInterval(() => {
+      if (stub.writes.filter((w) => w === '\r').length >= 2) {
+        clearInterval(unsubscribeProbe);
+        void appendFile(jsonl, JSON.stringify({
+          type: 'assistant',
+          message: {
+            content: [],
+            stop_reason: 'end_turn',
+            usage: { input_tokens: 1, output_tokens: 1 },
+          },
+        }) + '\n').then(() => appendFile(jsonl, JSON.stringify({
+          type: 'system',
+          subtype: 'turn_duration',
+          durationMs: 1,
+        }) + '\n'));
+      }
+    }, 5);
+
+    const events: AgentEvent[] = [];
+    try {
+      for await (const ev of session.runTurn('hello')) events.push(ev);
+    } finally {
+      clearInterval(unsubscribeProbe);
+    }
+
+    expect(stub.writes.filter((w) => w === '\r').length).toBeGreaterThanOrEqual(2);
+    expect(events.at(-1)).toEqual({ type: 'done', terminationReason: 'normal' });
+  });
+
+  it('does not re-send Enter once the JSONL shows activity', async () => {
+    const cwd = '/Users/me/proj';
+    const sessionId = 'sess-no-resubmit';
+    const home = await makeJsonlHome(cwd, sessionId);
+    const stub = createStubPty();
+    const jsonl = join(home, '.claude', 'projects', encodeCwdForClaudeProjects(cwd), `${sessionId}.jsonl`);
+    const session = new PtySession({
+      pty: stub.handle,
+      cwd,
+      sessionId,
+      home,
+      pollMs: 5,
+      promptDelayMs: 1,
+      readinessQuietMs: 0,
+      submitRetryMs: 30,
+    });
+
+    // JSONL shows progress immediately (submission worked) — but the turn
+    // stays open well past submitRetryMs so a broken guard would re-send.
+    setTimeout(() => {
+      void appendFile(jsonl, JSON.stringify({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'working...' }] },
+      }) + '\n');
+    }, 5);
+
+    const events: AgentEvent[] = [];
+    const iter = session.runTurn('hello')[Symbol.asyncIterator]();
+    const pump = (async () => {
+      while (true) {
+        const { value, done } = await iter.next();
+        if (done) break;
+        events.push(value);
+      }
+    })();
+
+    await new Promise((r) => setTimeout(r, 150));
+    expect(stub.writes.filter((w) => w === '\r').length).toBe(1);
+
+    await session.softInterrupt(50);
+    await pump;
+  });
+
+  it('caps Enter re-sends at submitMaxRetries when the JSONL never wakes up', async () => {
+    const cwd = '/Users/me/proj';
+    const sessionId = 'sess-resubmit-cap';
+    const home = await makeJsonlHome(cwd, sessionId);
+    const stub = createStubPty();
+    const session = new PtySession({
+      pty: stub.handle,
+      cwd,
+      sessionId,
+      home,
+      pollMs: 5,
+      promptDelayMs: 1,
+      readinessQuietMs: 0,
+      submitRetryMs: 15,
+      submitMaxRetries: 2,
+    });
+
+    const events: AgentEvent[] = [];
+    const iter = session.runTurn('hello')[Symbol.asyncIterator]();
+    const pump = (async () => {
+      while (true) {
+        const { value, done } = await iter.next();
+        if (done) break;
+        events.push(value);
+      }
+    })();
+
+    // 10× submitRetryMs — an uncapped loop would have sent many more by now.
+    await new Promise((r) => setTimeout(r, 150));
+    expect(stub.writes.filter((w) => w === '\r').length).toBe(1 + 2);
+
+    await session.softInterrupt(50);
+    await pump;
+  });
+
   it('handles the "trust this folder" consent dialog by pressing Enter (one-time)', async () => {
     const cwd = '/Users/me/proj';
     const sessionId = 'sess-trust';
