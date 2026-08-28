@@ -15,6 +15,7 @@ import type { SessionCatalog } from '../session/catalog';
 import type { SessionStore } from '../session/store';
 import type { WorkspaceStore } from '../workspace/store';
 import { commandSessionCatalogIdentity } from '../bot/session-catalog-identity';
+import { chatScope } from '../bot/scope';
 
 /** Marker key on a button's value object that flags the cardAction as
  * a callback that should be forwarded back to the agent instead
@@ -250,18 +251,14 @@ async function resolveScope(
 ): Promise<{ scope: string; threadId: string | undefined; mode: 'p2p' | 'group' | 'topic' }> {
   const chatId = deps.evt.chatId;
   const mode = await deps.chatModeCache.resolve(deps.channel, chatId);
-  if (mode !== 'topic') {
-    return { scope: chatId, threadId: undefined, mode };
-  }
-  // Topic group — need the carrier message's thread_id to compose scope.
-  // One API call per click; could cache by messageId if it ever becomes hot.
+  // Look up the carrier message's thread_id regardless of chat mode:
+  // groups switched to topic mode keep chat_mode="group", so thread_id
+  // presence is the only reliable topic signal. One API call per click;
+  // could cache by messageId if it ever becomes hot.
   const threadId = await lookupMessageThreadId(deps.channel, deps.evt.messageId);
-  if (!threadId) {
-    // Fall back to plain chatId. Better to land in the chat's "default"
-    // scope than fail the click silently.
-    return { scope: chatId, threadId: undefined, mode };
-  }
-  return { scope: `${chatId}:${threadId}`, threadId, mode };
+  // Fall back to plain chatId when there's no thread. Better to land in
+  // the chat's "default" scope than fail the click silently.
+  return { scope: chatScope(chatId, threadId), threadId, mode };
 }
 
 async function lookupMessageThreadId(

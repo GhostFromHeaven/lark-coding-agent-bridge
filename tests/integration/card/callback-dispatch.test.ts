@@ -102,6 +102,40 @@ describe('signed card callback dispatch', () => {
     expect(queued[0]?.content).toBe('[card-click] {"choice":"a"}');
   });
 
+  it('scopes card callbacks by thread_id even when chat mode resolves as group (converted group)', async () => {
+    // A regular group switched to topic mode: chat.get says "group" but
+    // the card's carrier message lives inside a topic (thread_id set).
+    const h = await createHarness({ chatMode: 'group' });
+    h.channel.rawThreadIds.set('om_card', 'th_topic');
+    h.activeRuns.register('oc_group:th_topic', h.agent.run({ runId: 'run-active', prompt: 'running' }));
+
+    await h.dispatch({
+      __bridge_cb: true,
+      bridge_token: h.token('agent_callback', { nonce: 'nonce-converted', scope: 'oc_group:th_topic' }),
+      choice: 'a',
+    });
+
+    expect(h.pending.cancel('oc_group')).toHaveLength(0);
+    const queued = h.pending.cancel('oc_group:th_topic');
+    expect(queued).toHaveLength(1);
+    expect(queued[0]?.content).toBe('[card-click] {"choice":"a"}');
+  });
+
+  it('still resolves the chat-level scope for card clicks in normal groups (no thread_id)', async () => {
+    const h = await createHarness({ chatMode: 'group' });
+    // rawThreadIds has no entry for 'om_card' — a plain group message.
+    h.activeRuns.register('oc_group', h.agent.run({ runId: 'run-active', prompt: 'running' }));
+
+    await h.dispatch({
+      __bridge_cb: true,
+      bridge_token: h.token('agent_callback', { nonce: 'nonce-plain-group' }),
+      choice: 'a',
+    });
+
+    const queued = h.pending.cancel('oc_group');
+    expect(queued).toHaveLength(1);
+  });
+
   it('acknowledges a stop click when the run already ended instead of silently dropping it', async () => {
     const h = await createHarness();
     // No active run registered for the scope — mimics a stale card whose run
