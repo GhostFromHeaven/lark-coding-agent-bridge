@@ -70,7 +70,7 @@ describe('thread-id-driven session scope', () => {
    * reports chat_mode="group". Sessions must still split per topic.
    */
   it('scopes sessions per topic when chat mode resolves as group but messages carry thread_id', async () => {
-    const h = await createHarness({ chatMode: 'group' });
+    const h = await createHarness({ chatMode: 'group', sessionIds: ['sess-topic-a'] });
 
     await startTestBridge(h);
 
@@ -85,7 +85,7 @@ describe('thread-id-driven session scope', () => {
   });
 
   it('gives two topics two distinct sessions in the same converted group', async () => {
-    const h = await createHarness({ chatMode: 'group' });
+    const h = await createHarness({ chatMode: 'group', sessionIds: ['sess-topic-a', 'sess-topic-b'] });
 
     await startTestBridge(h);
 
@@ -103,7 +103,7 @@ describe('thread-id-driven session scope', () => {
   });
 
   it('keeps quote-replies (root_id only, no thread_id) on the chat-level session', async () => {
-    const h = await createHarness({ chatMode: 'group' });
+    const h = await createHarness({ chatMode: 'group', sessionIds: ['sess-quote'] });
 
     await startTestBridge(h);
 
@@ -117,13 +117,14 @@ describe('thread-id-driven session scope', () => {
     );
     await waitFor(() => h.agent.runOptions.length === 1);
 
-    expect(h.sessions.getRaw('oc_scope_chat')?.sessionId).toBe('sess-topic-a');
+    expect(h.sessions.getRaw('oc_scope_chat')?.sessionId).toBe('sess-quote');
     expect(h.sessions.getRaw('oc_scope_chat:omt_a')).toBeUndefined();
   });
 });
 
 async function createHarness(options: {
   chatMode?: 'group' | 'topic';
+  sessionIds?: string[];
 }): Promise<{
   tmp: TmpProfile;
   channel: FakeLarkChannel & { handlers: MessageHandlerMap };
@@ -161,15 +162,15 @@ async function createHarness(options: {
   // FakeAgentAdapter's `events` takes one event list per run (array of
   // arrays, shifted per `run()` call). Each run's system event records a
   // distinct sessionId we can assert against the SessionStore scope keys.
+  // Each test passes the exact sessionIds it needs, so expectations are
+  // self-contained instead of relying on a shared default event ordering.
   const done = { type: 'done' as const, terminationReason: 'normal' as const };
+  const sessionIds = options.sessionIds ?? ['sess-topic-a', 'sess-topic-b'];
   const agent = new FakeAgentAdapter({
-    events: [
-      // First run of every test (fresh adapter per harness): topic A /
-      // quote-reply, sessionId 'sess-topic-a'.
-      [{ type: 'system' as const, sessionId: 'sess-topic-a' }, done],
-      // Test 2's second message (topic B): sessionId 'sess-topic-b'.
-      [{ type: 'system' as const, sessionId: 'sess-topic-b' }, done],
-    ],
+    events: sessionIds.map((sessionId) => [
+      { type: 'system' as const, sessionId },
+      done,
+    ]),
   });
   const channel = createFakeLarkChannel(options);
   sdkMock.channel = channel;

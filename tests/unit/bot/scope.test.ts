@@ -24,4 +24,8 @@ describe('chatScope', () => {
   it('falls back to chatId when a topic-group top-level message has no thread_id', () => {
     expect(chatScope('oc_chat', undefined)).toBe('oc_chat');
   });
+
+  it('treats empty string threadId as "no thread"', () => {
+    expect(chatScope('oc_chat', '')).toBe('oc_chat');
+  });
 });
