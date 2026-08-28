@@ -56,6 +56,7 @@ import { createOwnerRefreshController } from '../policy/owner';
 import { RunExecutor } from '../runtime/run-executor';
 import type { SessionCatalog } from '../session/catalog';
 import type { SessionStore } from '../session/store';
+import { topicTitleFromPrompt } from '../session/topic-title';
 import type { WorkspaceStore } from '../workspace/store';
 import { ActiveRuns, type RunHandle } from './active-runs';
 import { ChatModeCache, type ChatMode } from './chat-mode-cache';
@@ -730,6 +731,12 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
   const prompt = buildPrompt(batch, attachments, quotes, channel.botIdentity, senderNames);
   log.info('prompt', 'built', { promptChars: prompt.length, quotes: quotes.length });
 
+  // Topic-scoped runs (message carries thread_id ⇒ scope `${chatId}:${threadId}`)
+  // derive their catalog display title from this first user prompt. The prompt
+  // above wraps the text in agent context sections; the title must come from
+  // the bare user message text instead. Write-once is enforced by the catalog.
+  const topicTitle = threadId ? topicTitleForBatch(batch) : undefined;
+
   // Thread the reply when policy says so: topic groups (when the message is
   // in a thread) and regular groups when the operator toggle is on. p2p never
   // threads. All downstream send/stream sites reuse this single sendOpts.
@@ -806,6 +813,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
       capability,
       policy: flow.policy,
       event: evt,
+      ...(topicTitle ? { topicTitle } : {}),
     });
     if (evt.type === 'system' && evt.sessionId) {
       log.info('session', 'set', { sessionId: evt.sessionId });
@@ -1593,6 +1601,20 @@ function stripAttachmentRefs(text: string, fileKeys: string[]): string {
     );
   }
   return out.replace(/\n{3,}/g, '\n\n');
+}
+
+/**
+ * Bare user text of a batch (attachment refs stripped, empty parts dropped) —
+ * the same source buildPrompt's user_input section uses, minus its fallbacks.
+ * Returns undefined when there is no usable text (title backfillable later).
+ */
+function topicTitleForBatch(batch: NormalizedMessage[]): string | undefined {
+  const fileKeys = batch.flatMap((m) => m.resources.map((r) => r.fileKey));
+  const text = batch
+    .map((m) => stripAttachmentRefs(m.content, fileKeys).trim())
+    .filter(Boolean)
+    .join('\n\n');
+  return topicTitleFromPrompt(text) || undefined;
 }
 
 function toPromptQuote(q: QuotedContext): BridgePromptQuotedMessage {

@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -135,6 +135,118 @@ describe('agent-aware session catalog', () => {
     });
     expect(catalog.entries().filter((entry) => entry.status === 'archived')).toHaveLength(1);
     await catalog.flush();
+  });
+
+  it('keeps topicTitle write-once across upserts for the same key', async () => {
+    const catalog = new SessionCatalog(await path());
+    const base = {
+      scopeId: 'chat-1:thread-1',
+      agentId: 'claude' as const,
+      cwdRealpath: '/repo',
+      policyFingerprint: 'fp-1',
+    };
+
+    catalog.upsertActive({ ...base, sessionId: 'sess-1', now: 1000, topicTitle: '首个话题标题' });
+
+    // A later run without topicTitle (e.g. non-first message) must not clear it.
+    catalog.upsertActive({ ...base, sessionId: 'sess-2', now: 2000 });
+    expect(catalog.activeFor(base)?.topicTitle).toBe('首个话题标题');
+
+    // Even an explicit competing title must not overwrite the first one.
+    catalog.upsertActive({
+      ...base,
+      sessionId: 'sess-3',
+      now: 3000,
+      topicTitle: '后来的标题',
+    });
+    expect(catalog.activeFor(base)?.topicTitle).toBe('首个话题标题');
+
+    // Empty string counts as "no value" and never becomes the stored title.
+    catalog.upsertActive({ ...base, sessionId: 'sess-4', now: 4000, topicTitle: '' });
+    expect(catalog.activeFor(base)?.topicTitle).toBe('首个话题标题');
+    await catalog.flush();
+  });
+
+  it('backfills topicTitle when the first attempt produced no value', async () => {
+    const catalog = new SessionCatalog(await path());
+    const base = {
+      scopeId: 'chat-1:thread-1',
+      agentId: 'claude' as const,
+      cwdRealpath: '/repo',
+      policyFingerprint: 'fp-1',
+    };
+
+    catalog.upsertActive({ ...base, sessionId: 'sess-1', now: 1000 });
+    expect(catalog.activeFor(base)?.topicTitle).toBeUndefined();
+
+    catalog.upsertActive({
+      ...base,
+      sessionId: 'sess-2',
+      now: 2000,
+      topicTitle: '补写的标题',
+    });
+    expect(catalog.activeFor(base)?.topicTitle).toBe('补写的标题');
+
+    // An empty-string title is not persisted as a value.
+    const fresh = new SessionCatalog(await path());
+    fresh.upsertActive({
+      ...base,
+      sessionId: 'sess-1',
+      now: 1000,
+      topicTitle: '',
+    });
+    expect(fresh.entries()[0]?.topicTitle).toBeUndefined();
+    await Promise.all([catalog.flush(), fresh.flush()]);
+  });
+
+  it('persists topicTitle across save/load and ignores non-string values on load', async () => {
+    const file = await path();
+    const catalog = new SessionCatalog(file);
+    const base = {
+      scopeId: 'chat-1:thread-1',
+      agentId: 'claude' as const,
+      cwdRealpath: '/repo',
+      policyFingerprint: 'fp-1',
+    };
+    catalog.upsertActive({
+      ...base,
+      sessionId: 'sess-1',
+      now: 1000,
+      topicTitle: '落盘标题',
+    });
+    await catalog.flush();
+
+    const reloaded = new SessionCatalog(file);
+    await reloaded.load();
+    expect(reloaded.activeFor(base)?.topicTitle).toBe('落盘标题');
+
+    // Legacy files without the field still load fine; malformed values are dropped.
+    const legacy = [
+      {
+        key: sessionCatalogKey(base),
+        scopeId: base.scopeId,
+        agentId: 'claude',
+        cwdRealpath: base.cwdRealpath,
+        policyFingerprint: base.policyFingerprint,
+        sessionId: 'sess-legacy',
+        status: 'active',
+        updatedAt: 1,
+      },
+      {
+        ...entry('chat-2:thread-2', 'sess-bad', 2),
+        topicTitle: 123,
+      },
+      {
+        ...entry('chat-2:thread-3', 'sess-empty', 3),
+        topicTitle: '',
+      },
+    ];
+    await writeFile(file, `${JSON.stringify(legacy)}\n`, 'utf8');
+    const legacyCatalog = new SessionCatalog(file);
+    await legacyCatalog.load();
+    const loaded = legacyCatalog.entries();
+    expect(loaded).toHaveLength(3);
+    expect(loaded.every((item) => item.topicTitle === undefined)).toBe(true);
   });
 
   it('garbage-collects old archived entries, per-scope overflow, and profile overflow', async () => {

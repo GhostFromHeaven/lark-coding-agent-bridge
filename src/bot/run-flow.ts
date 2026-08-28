@@ -85,6 +85,12 @@ export interface RecordRunSessionEventInput {
   capability: AgentCapability;
   policy: RunPolicyAllow;
   event: AgentEvent;
+  /**
+   * Topic display title for topic-scoped sessions (scope `${chatId}:${threadId}`),
+   * derived from the run's user prompt. Only supplied by callers handling a
+   * topic-scope run; the catalog stores it write-once (first prompt wins).
+   */
+  topicTitle?: string;
 }
 
 export async function startRunFlow(input: StartRunFlowInput): Promise<StartRunFlowResult> {
@@ -250,6 +256,7 @@ export function recordRunSessionEvent(input: RecordRunSessionEventInput): void {
       cwdRealpath,
       policyFingerprint: input.policy.policyFingerprint,
       sessionId: input.event.sessionId,
+      ...(input.topicTitle ? { topicTitle: input.topicTitle } : {}),
     });
     return;
   }
@@ -260,6 +267,7 @@ export function recordRunSessionEvent(input: RecordRunSessionEventInput): void {
       cwdRealpath: input.policy.cwdRealpath,
       policyFingerprint: input.policy.policyFingerprint,
       threadId: input.event.threadId,
+      ...(input.topicTitle ? { topicTitle: input.topicTitle } : {}),
     });
   }
 }

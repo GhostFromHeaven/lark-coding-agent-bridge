@@ -22,6 +22,14 @@ export interface SessionCatalogEntry extends SessionCatalogIdentity {
   sessionId?: string;
   threadId?: string;
   lastSummary?: string;
+  /**
+   * Topic display title (topic-scoped sessions only: scopeId contains the
+   * `${chatId}:${threadId}` form). Derived from the topic's first user
+   * prompt — write-once: once set to a non-empty value it is never
+   * overwritten by later upserts. Optional so legacy catalog files without
+   * the field load unchanged.
+   */
+  topicTitle?: string;
 }
 
 export interface UpsertSessionCatalogInput extends SessionCatalogIdentity {
@@ -29,6 +37,7 @@ export interface UpsertSessionCatalogInput extends SessionCatalogIdentity {
   sessionId?: string;
   threadId?: string;
   lastSummary?: string;
+  topicTitle?: string;
 }
 
 export interface ArchiveSessionCatalogInput extends SessionCatalogIdentity {
@@ -102,6 +111,10 @@ export class SessionCatalog {
   upsertActive(input: UpsertSessionCatalogInput): SessionCatalogEntry {
     assertAgentIdentity(input);
     const key = sessionCatalogKey(input);
+    // topicTitle is write-once: the existing non-empty value wins over any
+    // incoming one (the topic's first prompt is its title). An empty string
+    // counts as "no value" so it can be backfilled by a later upsert.
+    const topicTitle = this.data.get(key)?.topicTitle || normalizeTopicTitle(input.topicTitle);
     const entry: SessionCatalogEntry = {
       key,
       scopeId: input.scopeId,
@@ -113,6 +126,7 @@ export class SessionCatalog {
       ...(input.sessionId ? { sessionId: input.sessionId } : {}),
       ...(input.threadId ? { threadId: input.threadId } : {}),
       ...(input.lastSummary ? { lastSummary: input.lastSummary } : {}),
+      ...(topicTitle ? { topicTitle } : {}),
     };
     this.data.set(key, entry);
     this.schedulePersist();
@@ -233,7 +247,12 @@ function normalizeEntry(input: unknown): SessionCatalogEntry | undefined {
     ...(typeof raw.sessionId === 'string' ? { sessionId: raw.sessionId } : {}),
     ...(typeof raw.threadId === 'string' ? { threadId: raw.threadId } : {}),
     ...(typeof raw.lastSummary === 'string' ? { lastSummary: raw.lastSummary } : {}),
+    ...(normalizeTopicTitle(raw.topicTitle) ? { topicTitle: normalizeTopicTitle(raw.topicTitle)! } : {}),
   };
+}
+
+function normalizeTopicTitle(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
 function matchesIdentity(entry: SessionCatalogEntry, input: SessionCatalogIdentity): boolean {
