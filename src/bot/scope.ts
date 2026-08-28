@@ -1,37 +1,20 @@
-import type { LarkChannel, NormalizedMessage } from '@larksuite/channel';
-import type { ChatModeCache } from './chat-mode-cache';
-
 /**
  * Compute the **session scope** for a message.
  *
- *  - **p2p / group**: scope = `chatId`. Replies in regular groups thread the
- *    UI but share the chat's session (matches user expectation).
- *  - **topic group**: scope = `${chatId}:${threadId}` — each topic is an
- *    independent conversation with its own session / cwd / pending queue.
- *    Topic-group top-level messages (no threadId, rare) fall back to chatId.
+ *  - Message carries `thread_id` (a topic message — in native topic
+ *    groups, in regular groups switched to topic mode, or in topics
+ *    started inside normal groups): scope = `${chatId}:${threadId}`.
+ *    Each topic is an independent conversation with its own session /
+ *    cwd / pending queue.
+ *  - Everything else (p2p, plain group messages, quote-replies that only
+ *    carry root_id/parent_id): scope = `chatId` — the chat-level session.
  *
- * Async because chat mode requires an API lookup (cached after first hit).
- * Callers typically await this once at intake/cardAction entry and pass
- * the resolved scope through.
+ * Chat mode is deliberately NOT consulted. Feishu's `im.v1.chat.get`
+ * keeps returning `chat_mode: "group"` for groups switched to topic
+ * mode (verified live 2026-08-28), so `thread_id` presence is the only
+ * reliable topic signal — and it is a clean one: quote-replies never
+ * carry it. See docs/superpowers/specs/2026-08-28-topic-session-scope-design.md.
  */
-export async function scopeFor(
-  channel: LarkChannel,
-  chatId: string,
-  threadId: string | undefined,
-  cache: ChatModeCache,
-): Promise<string> {
-  const mode = await cache.resolve(channel, chatId);
-  if (mode === 'topic' && threadId) {
-    return `${chatId}:${threadId}`;
-  }
-  return chatId;
-}
-
-/** Convenience overload from a NormalizedMessage. */
-export async function scopeForMessage(
-  channel: LarkChannel,
-  msg: NormalizedMessage,
-  cache: ChatModeCache,
-): Promise<string> {
-  return scopeFor(channel, msg.chatId, msg.threadId, cache);
+export function chatScope(chatId: string, threadId: string | undefined): string {
+  return threadId ? `${chatId}:${threadId}` : chatId;
 }
