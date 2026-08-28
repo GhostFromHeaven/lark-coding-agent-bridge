@@ -62,6 +62,7 @@ import { ChatModeCache, type ChatMode } from './chat-mode-cache';
 import { shouldReplyInThread, replyQuoteTargetForMessage } from './thread-policy';
 import { handleCommentMention } from './comments';
 import { recordRunSessionEvent, startRunFlow } from './run-flow';
+import { chatScope } from './scope';
 import { commandSessionCatalogIdentity } from './session-catalog-identity';
 import { startKeepalive } from './keepalive';
 import { PendingQueue } from './pending-queue';
@@ -550,11 +551,11 @@ async function intakeMessage(deps: IntakeDeps): Promise<void> {
   } = deps;
   const preview = msg.content.length > 80 ? `${msg.content.slice(0, 80)}…` : msg.content;
   // Resolve scope (and underlying chat mode) once at intake — every
-  // downstream consumer keys off these.
+  // downstream consumer keys off these. Scope follows thread_id alone:
+  // chat_mode stays "group" for groups switched to topic mode, so it
+  // can't be the gate (see scope.ts).
   const chatMode = await chatModeCache.resolve(channel, msg.chatId);
-  const scope = chatMode === 'topic' && msg.threadId
-    ? `${msg.chatId}:${msg.threadId}`
-    : msg.chatId;
+  const scope = chatScope(msg.chatId, msg.threadId);
   log.info('intake', 'enter', {
     scope,
     chatType: msg.chatType,
