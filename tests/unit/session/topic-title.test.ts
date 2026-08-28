@@ -41,4 +41,37 @@ describe('topicTitleFromPrompt', () => {
   it('truncates by code units after whitespace collapse', () => {
     expect(topicTitleFromPrompt('a'.repeat(30))).toBe(`${'a'.repeat(20)}…`);
   });
+
+  it('strips a leading bot mention when bot names are supplied', () => {
+    expect(topicTitleFromPrompt('@Bridge 话题A的问题', ['Bridge'])).toBe('话题A的问题');
+  });
+
+  it('keeps the mention when it appears mid-sentence', () => {
+    expect(topicTitleFromPrompt('你好 @Bridge 请看这个问题', ['Bridge'])).toBe(
+      '你好 @Bridge 请看这个问题',
+    );
+  });
+
+  it('strips repeated stacked leading mentions', () => {
+    expect(topicTitleFromPrompt('@Bridge @Bridge 话题', ['Bridge'])).toBe('话题');
+  });
+
+  it('does not strip a name-like prefix without a following space or end', () => {
+    expect(topicTitleFromPrompt('@Bridge看看这个', ['Bridge'])).toBe('@Bridge看看这个');
+  });
+
+  it('matches any supplied bot name and ignores non-matching ones', () => {
+    expect(topicTitleFromPrompt('@小助手 话题标题', ['Bridge', '小助手'])).toBe('话题标题');
+    expect(topicTitleFromPrompt('@别人 话题标题', ['Bridge'])).toBe('@别人 话题标题');
+  });
+
+  it('treats a mention-only prompt as empty', () => {
+    expect(topicTitleFromPrompt('  @Bridge  ', ['Bridge'])).toBe('');
+  });
+
+  it('truncates after mention stripping', () => {
+    expect(topicTitleFromPrompt(`@Bridge ${'字'.repeat(25)}`, ['Bridge'])).toBe(
+      `${'字'.repeat(20)}…`,
+    );
+  });
 });

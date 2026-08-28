@@ -735,7 +735,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
   // derive their catalog display title from this first user prompt. The prompt
   // above wraps the text in agent context sections; the title must come from
   // the bare user message text instead. Write-once is enforced by the catalog.
-  const topicTitle = threadId ? topicTitleForBatch(batch) : undefined;
+  const topicTitle = threadId ? topicTitleForBatch(batch, channel.botIdentity) : undefined;
 
   // Thread the reply when policy says so: topic groups (when the message is
   // in a thread) and regular groups when the operator toggle is on. p2p never
@@ -1606,15 +1606,25 @@ function stripAttachmentRefs(text: string, fileKeys: string[]): string {
 /**
  * Bare user text of a batch (attachment refs stripped, empty parts dropped) —
  * the same source buildPrompt's user_input section uses, minus its fallbacks.
- * Returns undefined when there is no usable text (title backfillable later).
+ * A leading bot mention (`@Name ` wake-up) is stripped from the title. Returns
+ * undefined when there is no usable text (title backfillable later).
  */
-function topicTitleForBatch(batch: NormalizedMessage[]): string | undefined {
+function topicTitleForBatch(
+  batch: NormalizedMessage[],
+  botIdentity?: { openId: string; name?: string },
+): string | undefined {
   const fileKeys = batch.flatMap((m) => m.resources.map((r) => r.fileKey));
   const text = batch
     .map((m) => stripAttachmentRefs(m.content, fileKeys).trim())
     .filter(Boolean)
     .join('\n\n');
-  return topicTitleFromPrompt(text) || undefined;
+  const botNames = [
+    ...(botIdentity?.name ? [botIdentity.name] : []),
+    ...batch.flatMap((m) =>
+      (m.mentions ?? []).filter((mention) => mention.isBot && mention.name).map((mention) => mention.name!),
+    ),
+  ];
+  return topicTitleFromPrompt(text, botNames) || undefined;
 }
 
 function toPromptQuote(q: QuotedContext): BridgePromptQuotedMessage {

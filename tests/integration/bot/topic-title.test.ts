@@ -74,15 +74,15 @@ describe('topic-scoped catalog topicTitle', () => {
       message({
         messageId: 'om_topic_a',
         threadId: 'omt_a',
-        // 28 chars after whitespace collapse → first 20 + ellipsis.
-        content: '@Bridge 一二三四五六七八九十一二三四五六七八九十',
+        // After stripping the leading @Bridge mention: 23 chars → first 20 + ellipsis.
+        content: '@Bridge 一二三四五六七八九十一二三四五六七八九十一二三',
       }),
     );
     await waitFor(() => entriesFor(h, 'oc_scope_chat:omt_a').length === 1);
 
     expect(entriesFor(h, 'oc_scope_chat:omt_a')[0]).toMatchObject({
       sessionId: 'sess-topic-a',
-      topicTitle: '@Bridge 一二三四五六七八九十一二…',
+      topicTitle: '一二三四五六七八九十一二三四五六七八九十…',
     });
   });
 
@@ -100,10 +100,10 @@ describe('topic-scoped catalog topicTitle', () => {
     );
     await waitFor(() => entriesFor(h, 'oc_scope_chat:omt_b').length === 1);
 
-    expect(entriesFor(h, 'oc_scope_chat:omt_a')[0]?.topicTitle).toBe('@Bridge 话题A的问题');
+    expect(entriesFor(h, 'oc_scope_chat:omt_a')[0]?.topicTitle).toBe('话题A的问题');
     expect(entriesFor(h, 'oc_scope_chat:omt_b')[0]).toMatchObject({
       sessionId: 'sess-topic-b',
-      topicTitle: '@Bridge 话题B的问题',
+      topicTitle: '话题B的问题',
     });
   });
 
@@ -118,8 +118,9 @@ describe('topic-scoped catalog topicTitle', () => {
     await waitFor(() => entriesFor(h, 'oc_scope_chat').length === 1);
 
     const entry = entriesFor(h, 'oc_scope_chat')[0];
-    expect(entry).toMatchObject({ sessionId: 'sess-chat' });
-    expect('topicTitle' in entry).toBe(false);
+    expect(entry).toBeDefined();
+    expect(entry!).toMatchObject({ sessionId: 'sess-chat' });
+    expect('topicTitle' in entry!).toBe(false);
   });
 
   it('keeps the topic title write-once: the second message in a topic does not retitle it', async () => {
@@ -139,7 +140,7 @@ describe('topic-scoped catalog topicTitle', () => {
     await waitFor(() => h.agent.runOptions.length === 2);
 
     expect(entriesFor(h, 'oc_scope_chat:omt_a')).toHaveLength(1);
-    expect(entriesFor(h, 'oc_scope_chat:omt_a')[0]?.topicTitle).toBe('@Bridge 话题A的第一个问题');
+    expect(entriesFor(h, 'oc_scope_chat:omt_a')[0]?.topicTitle).toBe('话题A的第一个问题');
   });
 });
 
