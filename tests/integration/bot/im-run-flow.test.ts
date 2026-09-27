@@ -100,6 +100,47 @@ describe('IM run flow', () => {
     expect(h.agent.runOptions[0]?.cwd).toBe(workspaceRealpath);
   });
 
+  it('resolves the run model from scope > named workspace > profile', async () => {
+    const h = await createHarness({ defaultWorkspace: true });
+    const workspaceRealpath = await realpath(h.tmp.workspace);
+
+    // Each run must be drained before the next submit on the same scope,
+    // otherwise the executor rejects it as run-already-active.
+    const runOnce = async (): Promise<void> => {
+      const result = await startRunFlow(h.flowInput());
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error('expected run flow to start');
+      await drain(result.execution.subscribe());
+    };
+
+    // profile 级：直接生效
+    h.profileConfig.preferences.model = 'sonnet';
+    await runOnce();
+    expect(h.agent.runOptions.at(-1)?.model).toBe('sonnet');
+
+    // named workspace 级：绑定 cwd 的别名覆盖 profile
+    h.workspaces.saveNamed('proj', workspaceRealpath);
+    h.workspaces.setNamedModel('proj', 'opus');
+    await runOnce();
+    expect(h.agent.runOptions.at(-1)?.model).toBe('opus');
+
+    // scope 级：最高优先
+    h.workspaces.setModel('chat-1', 'haiku');
+    await runOnce();
+    expect(h.agent.runOptions.at(-1)?.model).toBe('haiku');
+
+    // 清除后逐级回落
+    h.workspaces.setModel('chat-1', null);
+    await runOnce();
+    expect(h.agent.runOptions.at(-1)?.model).toBe('opus');
+  });
+
+  it('omits model entirely when no level sets it', async () => {
+    const h = await createHarness({ defaultWorkspace: true });
+    await startRunFlow(h.flowInput());
+    expect(h.agent.runOptions.at(-1)?.model).toBeUndefined();
+  });
+
 });
 
 async function createHarness(options: { defaultWorkspace?: boolean } = {}): Promise<{
@@ -109,6 +150,7 @@ async function createHarness(options: { defaultWorkspace?: boolean } = {}): Prom
   sessions: SessionStore;
   workspaces: WorkspaceStore;
   profileConfig: ReturnType<typeof createDefaultProfileConfig>;
+  flowInput: () => Parameters<typeof startRunFlow>[0];
 }> {
   const tmp = await createTmpProfile('bridge-im-run-flow-');
   const agent = new FakeAgentAdapter({
@@ -121,7 +163,7 @@ async function createHarness(options: { defaultWorkspace?: boolean } = {}): Prom
     createRunId: () => 'run-1',
     now: () => 1000,
   });
-  const profileConfig = createDefaultProfileConfig({
+  const base = createDefaultProfileConfig({
     agentKind: 'claude',
     accounts: {
       app: {
@@ -131,8 +173,30 @@ async function createHarness(options: { defaultWorkspace?: boolean } = {}): Prom
       },
     },
   });
+  // Single shared object: `flowInput` must capture the same instance the
+  // test mutates via `h.profileConfig` (e.g. preferences.model).
+  const profileConfig: ReturnType<typeof createDefaultProfileConfig> = {
+    ...base,
+    workspaces: {
+      ...base.workspaces,
+      ...(options.defaultWorkspace ? { default: tmp.workspace } : {}),
+    },
+  };
   const sessions = new SessionStore(join(tmp.profile, 'sessions.json'));
   const workspaces = new WorkspaceStore(join(tmp.profile, 'workspaces.json'));
+  const flowInput = () => ({
+    scopeId: 'chat-1',
+    scope: { source: 'im' as const, chatId: 'chat-1', actorId: 'ou_user' },
+    prompt: 'hello',
+    attachments: [],
+    access: { ok: true, reason: 'allowed-user' as const },
+    capability: claudeCapability(profileConfig),
+    profileConfig,
+    sessions,
+    workspaces,
+    executor,
+    now: 1000,
+  });
   cleanups.push(async () => {
     await Promise.all([sessions.flush(), workspaces.flush()]);
     await tmp.cleanup();
@@ -143,12 +207,12 @@ async function createHarness(options: { defaultWorkspace?: boolean } = {}): Prom
     executor,
     sessions,
     workspaces,
-    profileConfig: {
-      ...profileConfig,
-      workspaces: {
-        ...profileConfig.workspaces,
-        ...(options.defaultWorkspace ? { default: tmp.workspace } : {}),
-      },
-    },
+    profileConfig,
+    flowInput,
   };
+}
+
+async function drain(events: AsyncIterable<unknown>): Promise<void> {
+  const out: unknown[] = [];
+  for await (const event of events) out.push(event);
 }

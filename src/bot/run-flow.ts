@@ -22,6 +22,7 @@ import type { RunExecution, RunExecutor } from '../runtime/run-executor';
 import { RunRejected, type RunRejectedCode } from '../runtime/errors';
 import type { SessionCatalog } from '../session/catalog';
 import type { SessionStore } from '../session/store';
+import { resolveRunModel } from '../workspace/model';
 import type { WorkspaceStore } from '../workspace/store';
 
 export interface StartRunFlowInput {
@@ -107,6 +108,13 @@ export async function startRunFlow(input: StartRunFlowInput): Promise<StartRunFl
       workspace,
     };
   }
+
+  const model = resolveRunModel({
+    workspaces: input.workspaces,
+    scopeId: input.scopeId,
+    cwdRealpath: workspace.cwdRealpath,
+    profileModel: input.profileConfig.preferences.model,
+  });
 
   const policy = evaluateRunPolicy({
     scope: input.scope,
@@ -207,6 +215,7 @@ export async function startRunFlow(input: StartRunFlowInput): Promise<StartRunFl
       policy,
       sessionId,
       threadId,
+      model,
       images:
         input.capability.agentId === 'codex'
           ? policy.attachments
