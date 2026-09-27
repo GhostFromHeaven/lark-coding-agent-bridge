@@ -2038,6 +2038,7 @@ async function showConfigForm(ctx: CommandContext): Promise<void> {
     requireMentionInGroup: getRequireMentionInGroup(ctx.controls.cfg),
     replyInThreadInGroup: getReplyInThreadInGroup(ctx.controls.cfg),
     claudeDriver: getClaudeDriver(ctx.controls.cfg),
+    model: getProfileModel(ctx.controls.cfg) ?? '',
     larkCliIdentity: ctx.controls.profileConfig.larkCli.identityPreset,
     allowedUsers: access.allowedUsers,
     allowedChats: access.allowedChats,
@@ -2138,6 +2139,9 @@ async function submitConfig(ctx: CommandContext): Promise<void> {
   const rawDriver = String(fv.claude_driver ?? '').trim();
   const claudeDriver: 'pty' | 'headless' =
     rawDriver === 'headless' ? 'headless' : 'pty';
+  // Free-form model string; empty clears the profile-level default.
+  const rawModel = String(fv.model ?? '').trim();
+  const model = rawModel === '' ? undefined : rawModel;
   const rawLarkCliIdentity = String(fv.lark_cli_identity ?? '').trim();
   const larkCliIdentity =
     rawLarkCliIdentity === 'user-default' || rawLarkCliIdentity === 'bot-only'
@@ -2179,6 +2183,7 @@ async function submitConfig(ctx: CommandContext): Promise<void> {
       requireMentionInGroup,
       replyInThreadInGroup,
       claudeDriver,
+      model,
     };
 
     let failureStep = 'config.save';
@@ -2243,6 +2248,7 @@ async function submitConfig(ctx: CommandContext): Promise<void> {
         requireMentionInGroup,
         replyInThreadInGroup,
         claudeDriver,
+        model: model ?? '',
         larkCliIdentity,
         allowedUsers: access.allowedUsers,
         allowedChats: access.allowedChats,

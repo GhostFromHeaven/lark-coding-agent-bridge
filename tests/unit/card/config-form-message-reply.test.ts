@@ -33,6 +33,7 @@ const base = {
   larkCliIdentity: 'bot-only',
   replyInThreadInGroup: false,
   claudeDriver: 'pty',
+  model: '',
 } as Parameters<typeof configFormCard>[0];
 
 describe('configFormCard message_reply picker exposes card', () => {

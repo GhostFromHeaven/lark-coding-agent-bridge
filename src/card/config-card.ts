@@ -15,6 +15,8 @@ export interface ConfigFormOpts {
   replyInThreadInGroup: boolean;
   /** claude 驱动方式。默认 'pty'。 */
   claudeDriver: 'pty' | 'headless';
+  /** Profile-level default model. '' means unset (claude CLI decides). */
+  model: string;
   larkCliIdentity: LarkCliIdentityPreset;
   allowedUsers: string[];
   allowedChats: string[];
@@ -243,6 +245,20 @@ export function configFormCard(opts: ConfigFormOpts): object {
             {
               tag: 'markdown',
               content:
+                '\n**默认模型**\n' +
+                '_profile 级默认模型,直接传给 claude 的 --model,如 `sonnet` / `opus` / 完整模型 ID_\n' +
+                '_留空 = 不设置(使用 claude CLI 默认);会被会话级 `/model` 覆盖_',
+            },
+            {
+              tag: 'input',
+              name: 'model',
+              default_value: opts.model,
+              placeholder: { tag: 'plain_text', content: 'sonnet' },
+              input_type: 'text',
+            },
+            {
+              tag: 'markdown',
+              content:
                 '\n**lark-cli 身份策略**\n' +
                 '_只允许应用身份:使用 bot/app 能力,不访问个人资源_\n' +
                 '_允许用户身份:保留应用身份,并允许已授权用户访问个人日历、邮箱、云盘等资源_',
@@ -329,7 +345,8 @@ export function configSavedCard(opts: ConfigFormOpts): object {
             `**run 探活**:\`${opts.runIdleTimeoutMinutes > 0 ? `${opts.runIdleTimeoutMinutes} 分钟` : '关闭'}\`\n` +
             `**群里需要 @ bot**:\`${opts.requireMentionInGroup ? '是' : '否'}\`\n` +
             `**群聊话题回复**:\`${opts.replyInThreadInGroup ? '是' : '否'}\`\n` +
-            `**Claude 驱动**:\`${opts.claudeDriver === 'headless' ? 'Headless' : 'PTY'}\`\n\n` +
+            `**Claude 驱动**:\`${opts.claudeDriver === 'headless' ? 'Headless' : 'PTY'}\`\n` +
+            `**默认模型**:\`${opts.model || '未设置'}\`\n\n` +
             `**lark-cli 身份策略**:\`${opts.larkCliIdentity === 'user-default' ? '允许用户身份' : '只允许应用身份'}\`\n\n` +
             '🔒 **访问控制**\n' +
             `**允许私聊的用户**:${summarize(opts.allowedUsers)}\n` +
