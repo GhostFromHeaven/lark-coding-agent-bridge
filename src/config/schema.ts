@@ -207,6 +207,13 @@ export interface AppPreferences {
    * stream-json` (one process per turn, no TUI interactions).
    */
   claudeDriver?: ClaudeDriver;
+  /**
+   * Profile-level default claude model, passed through as `--model`.
+   * Free-form string (validated by the claude CLI itself). Empty / unset
+   * means "let the claude CLI decide". Overridden per named workspace and
+   * per scope — see `/model`.
+   */
+  model?: string;
 }
 
 /**
@@ -325,6 +332,12 @@ export function getClaudeDriver(cfg: AppConfig): ClaudeDriver {
   const v = cfg.preferences?.claudeDriver;
   if (v === 'headless') return 'headless';
   return 'pty';
+}
+
+/** Profile-level default model. Blank / unset ⇒ let the CLI decide. */
+export function getProfileModel(cfg: AppConfig): string | undefined {
+  const raw = cfg.preferences?.model?.trim();
+  return raw ? raw : undefined;
 }
 
 /** Resolve the max-concurrent-runs preference with default + sanity clamp. */
