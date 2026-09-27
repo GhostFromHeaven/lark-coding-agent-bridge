@@ -14,12 +14,14 @@ afterEach(async () => {
 
 async function newStore(): Promise<WorkspaceStore> {
   const dir = await mkdtemp(join(tmpdir(), 'ws-model-'));
+  const store = new WorkspaceStore(join(dir, 'workspaces.json'));
+  await store.load();
   cleanups.push(async () => {
+    // 等待在途写完成，避免与目录删除竞态（先例见 store.test.ts）
+    await store.flush();
     const { rm } = await import('node:fs/promises');
     await rm(dir, { recursive: true, force: true });
   });
-  const store = new WorkspaceStore(join(dir, 'workspaces.json'));
-  await store.load();
   return store;
 }
 

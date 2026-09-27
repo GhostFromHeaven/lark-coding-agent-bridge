@@ -35,16 +35,14 @@ describe('/model command', () => {
 
     h.controls.cfg.preferences!.model = 'sonnet';
     await h.run('/model');
-    expect(lastMarkdown(h.channel)).toContain('`sonnet`');
-    expect(lastMarkdown(h.channel)).toContain('profile');
+    expect(lastMarkdown(h.channel)).toContain('`sonnet`（来源:profile）');
 
     const real = await realpath(h.tmp.workspace);
     h.workspaces.saveNamed('proj', real);
     h.workspaces.setNamedModel('proj', 'opus');
     h.workspaces.setCwd('chat-1', real);
     await h.run('/model');
-    expect(lastMarkdown(h.channel)).toContain('`opus`');
-    expect(lastMarkdown(h.channel)).toContain('工作目录');
+    expect(lastMarkdown(h.channel)).toContain('`opus`（来源:工作目录）');
   });
 
   it('sets and resets the scope model', async () => {
@@ -80,10 +78,22 @@ describe('/model command', () => {
     expect(h.workspaces.namedModelFor(scopedKey)).toBe('sonnet');
 
     await h.run('/model ws proj reset');
+    expect(lastMarkdown(h.channel)).toContain('已清除');
     expect(h.workspaces.namedModelFor(scopedKey)).toBeUndefined();
 
     await h.run('/model ws nosuch sonnet');
     expect(lastMarkdown(h.channel)).toContain('未找到工作目录别名');
+  });
+
+  it('rejects non-admin /model set but allows non-admin view', async () => {
+    const h = await createHarness();
+
+    await h.run('/model haiku', 'ou-not-admin');
+    expect(lastMarkdown(h.channel)).toContain('设置模型仅管理员可用');
+    expect(h.workspaces.modelFor('chat-1')).toBeUndefined();
+
+    await h.run('/model', 'ou-not-admin');
+    expect(lastMarkdown(h.channel)).toContain('claude 默认');
   });
 
   it('shows usage for malformed input', async () => {

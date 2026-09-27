@@ -258,7 +258,7 @@ export function helpCard(agentName = 'Agent'): object {
         '- `/stop comment:<scopeHash>` — 管理员停止云文档评论任务',
         '- `/timeout [N|off|default]` — 当前 session 的探活分钟数,`/config` 改全局默认',
         '- `/timeout comment:<scopeHash> N` — 管理员设置云文档评论任务探活',
-        '- `/model [name|reset]` — 设置/清除当前会话的模型;`/model ws <name> <model>` 设置命名工作目录模型',
+        '- `/model [name|reset]` — 设置/清除当前会话的模型(管理员);`/model ws <name> <model>` 设置命名工作目录模型(管理员)',
         '- `/ps` — 列出本机所有 bot,标识当前正在回复的那个',
         '- `/exit <id|#>` — 关掉指定 bot(用 `/ps` 看 id/序号)',
         '- `/reconnect` — 强制重连 WebSocket(网络抖动后 bot 没反应时用)',

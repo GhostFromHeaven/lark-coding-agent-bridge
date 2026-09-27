@@ -107,4 +107,36 @@ describe('WorkspaceStore model support', () => {
     expect(store.namedModelForCwd('/tmp/definitely-not-bound')).toBeUndefined();
     await store.flush(); // 等待在途写完成，避免与 afterEach 的目录清理竞态
   });
+
+  it('falls back to raw string comparison when the named cwd no longer exists', async () => {
+    const { store } = await newStore();
+    const missing = join(tmpdir(), `ws-gone-${process.pid}-${Date.now()}`); // 不存在的绝对路径
+    store.saveNamed('gone', missing);
+    store.setNamedModel('gone', 'm');
+    expect(store.namedModelForCwd(missing)).toBe('m');
+    await store.flush(); // 等待在途写完成，避免与 afterEach 的目录清理竞态
+  });
+
+  it('drops corrupted entries on load and keeps good ones', async () => {
+    const { store: s1, path } = await newStore();
+    s1.saveNamed('good', '/tmp/good');
+    await s1.flush();
+
+    const raw = JSON.parse(await readFile(path, 'utf8'));
+    raw.named['bad-null'] = null;
+    raw.named['bad-arr'] = ['/tmp/x'];
+    raw.chats['bad-chat'] = 'not-an-object';
+    raw.chats['good-chat'] = { cwd: '/tmp/gc', model: 42 }; // model 非 string,该字段丢弃
+    const { writeFile } = await import('node:fs/promises');
+    await writeFile(path, JSON.stringify(raw, null, 2));
+
+    const s2 = new WorkspaceStore(path);
+    await expect(s2.load()).resolves.toBeUndefined();
+    expect(s2.getNamed('good')).toBe('/tmp/good');
+    expect(s2.getNamed('bad-null')).toBeUndefined();
+    expect(s2.getNamed('bad-arr')).toBeUndefined();
+    expect(s2.cwdFor('bad-chat')).toBeUndefined();
+    expect(s2.cwdFor('good-chat')).toBe('/tmp/gc');
+    expect(s2.modelFor('good-chat')).toBeUndefined();
+  });
 });

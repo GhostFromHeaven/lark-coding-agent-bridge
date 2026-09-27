@@ -1138,6 +1138,12 @@ async function handleModel(args: string, ctx: CommandContext): Promise<void> {
 
   if (sub === '') return showModelStatus(ctx);
 
+  // 查看全员可用；设置类操作（设置/清除/ws 子命令）仅管理员
+  if (!canRunAdminCommand(ctx.controls.profileConfig, ctx.controls, ctx.msg.senderId).ok) {
+    await reply(ctx, '❌ 设置模型仅管理员可用；发送 `/model` 可查看当前设置。');
+    return;
+  }
+
   if (sub === 'reset') {
     ctx.workspaces.setModel(ctx.scope, null);
     log.info('command', 'model-reset', { scope: ctx.scope });
@@ -1146,12 +1152,6 @@ async function handleModel(args: string, ctx: CommandContext): Promise<void> {
   }
 
   if (sub === 'ws') {
-    if (
-      !canRunAdminCommand(ctx.controls.profileConfig, ctx.controls, ctx.msg.senderId).ok
-    ) {
-      await reply(ctx, '❌ 设置工作目录的模型仅管理员可用。');
-      return;
-    }
     const name = parts[1] ?? '';
     const value = parts.slice(2).join(' ').trim();
     if (!name || !value) {
@@ -1164,12 +1164,9 @@ async function handleModel(args: string, ctx: CommandContext): Promise<void> {
       return;
     }
     if (value === 'reset') {
-      const cleared = ctx.workspaces.setNamedModel(key, null);
+      ctx.workspaces.setNamedModel(key, null);
       log.info('command', 'model-ws-reset', { scope: ctx.scope, name });
-      await reply(
-        ctx,
-        cleared ? `✅ 已清除 \`${name}\` 的模型设置。` : `\`${name}\` 本来就没设过模型。`,
-      );
+      await reply(ctx, `✅ 已清除 \`${name}\` 的模型设置。`);
       return;
     }
     ctx.workspaces.setNamedModel(key, value);
@@ -1208,7 +1205,7 @@ async function showModelStatus(ctx: CommandContext): Promise<void> {
     `- profile 默认:${profileModel ? `\`${profileModel}\`` : '未设置'}`,
   ];
   const usage =
-    '\n\n用法:\n- `/model <name>` 当前会话设置模型\n- `/model reset` 清除会话设置\n- `/model ws <name> <model>` 设置命名工作目录的模型(管理员)\n- `/model ws <name> reset` 清除工作目录模型\n\n_注:进行中的会话继续用旧模型,新 session 生效;`/new` 立即生效_';
+    '\n\n用法:\n- `/model <name>` 当前会话设置模型(管理员)\n- `/model reset` 清除会话设置(管理员)\n- `/model ws <name> <model>` 设置命名工作目录的模型(管理员)\n- `/model ws <name> reset` 清除工作目录模型(管理员)\n\n_注:进行中的会话继续用旧模型,新 session 生效;`/new` 立即生效_';
   await reply(ctx, lines.join('\n') + usage);
 }
 

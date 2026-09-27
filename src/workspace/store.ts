@@ -4,6 +4,10 @@ import { paths } from '../config/paths';
 import { log } from '../core/logger';
 import { writeFileAtomic } from '../platform/atomic-write';
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 /** Per-scope entry. `cwd` is absent for model-only entries (scope set a model
  *  via `/model` before any `/cd` binding); falls through to the profile
  *  default cwd in that case. */
@@ -35,8 +39,8 @@ export class WorkspaceStore {
       const text = await readFile(this.path, 'utf8');
       const parsed = JSON.parse(text) as Partial<WorkspaceData>;
       this.data = {
-        chats: parsed.chats ?? {},
-        named: parsed.named ?? {},
+        chats: this.normalizeChats(parsed.chats),
+        named: this.normalizeNamed(parsed.named),
       };
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
@@ -154,6 +158,49 @@ export class WorkspaceStore {
   private namedCwd(entry: NamedEntry | undefined): string | undefined {
     if (entry === undefined) return undefined;
     return typeof entry === 'string' ? entry : entry.cwd;
+  }
+
+  /** Guard against corrupted JSON: named entries survive only as a bare cwd
+   *  string or a plain object with a string cwd. Anything else is dropped. */
+  private normalizeNamed(raw: unknown): Record<string, NamedEntry> {
+    if (!isPlainObject(raw)) return {};
+    const out: Record<string, NamedEntry> = {};
+    for (const [key, value] of Object.entries(raw)) {
+      if (typeof value === 'string') {
+        out[key] = value;
+        continue;
+      }
+      if (isPlainObject(value) && typeof value.cwd === 'string') {
+        const entry: { cwd: string; model?: string } = { cwd: value.cwd };
+        if (typeof value.model === 'string') entry.model = value.model;
+        out[key] = entry;
+        continue;
+      }
+      log.warn('workspace', 'invalid-entry-dropped', { kind: 'named', key });
+    }
+    return out;
+  }
+
+  /** Guard against corrupted JSON: chat entries survive only as plain objects,
+   *  keeping cwd/model fields only when they are strings. */
+  private normalizeChats(raw: unknown): Record<string, ChatEntry> {
+    if (!isPlainObject(raw)) return {};
+    const out: Record<string, ChatEntry> = {};
+    for (const [key, value] of Object.entries(raw)) {
+      if (!isPlainObject(value)) {
+        log.warn('workspace', 'invalid-entry-dropped', { kind: 'chats', key });
+        continue;
+      }
+      const entry: ChatEntry = {};
+      if (typeof value.cwd === 'string') entry.cwd = value.cwd;
+      if (typeof value.model === 'string') entry.model = value.model;
+      if (entry.cwd === undefined && entry.model === undefined) {
+        log.warn('workspace', 'invalid-entry-dropped', { kind: 'chats', key });
+        continue;
+      }
+      out[key] = entry;
+    }
+    return out;
   }
 
   private schedulePersist(): void {
