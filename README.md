@@ -155,7 +155,7 @@ If a profile was created with the wrong agent kind, stop or unregister any match
 | `/remove user @name`, `/remove admin @name`, `/remove group` | Remove access entries |
 | `/stop` | Stop the current run, including the card stop button |
 | `/timeout [N\|off\|default]` | Set or clear the current session idle watchdog |
-| `/model [name\|reset]` | Set or clear the model for this session (admin) |
+| `/model [name\|reset]` | Set or clear the model for this session (admin; scope > workspace > profile) |
 | `/model ws <name> <model\|reset>` | Set or clear the model bound to a named workspace (admin) |
 | `/ps` | List local bridge processes |
 | `/exit <id\|#>` | Stop a bridge process |
