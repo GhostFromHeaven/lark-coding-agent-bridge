@@ -29,6 +29,7 @@ import {
   getClaudeDriver,
   getMaxConcurrentRuns,
   getMessageReplyMode,
+  getProfileModel,
   getReplyInThreadInGroup,
   getRequireMentionInGroup,
   getRunIdleTimeoutMs,
@@ -215,6 +216,7 @@ const handlers: Record<string, Handler> = {
   '/config': handleConfig,
   '/stop': handleStop,
   '/timeout': handleTimeout,
+  '/model': handleModel,
   '/ps': handlePs,
   '/exit': handleExit,
   '/doctor': handleDoctor,
@@ -1128,6 +1130,86 @@ function parseTimeoutTarget(input: string, currentScope: string): {
     value: input,
     targeted: false,
   };
+}
+
+async function handleModel(args: string, ctx: CommandContext): Promise<void> {
+  const parts = args.trim().split(/\s+/).filter(Boolean);
+  const sub = parts[0] ?? '';
+
+  if (sub === '') return showModelStatus(ctx);
+
+  if (sub === 'reset') {
+    ctx.workspaces.setModel(ctx.scope, null);
+    log.info('command', 'model-reset', { scope: ctx.scope });
+    await reply(ctx, '✅ 已清除当前会话的模型设置,回退到工作目录/profile 默认。');
+    return;
+  }
+
+  if (sub === 'ws') {
+    if (
+      !canRunAdminCommand(ctx.controls.profileConfig, ctx.controls, ctx.msg.senderId).ok
+    ) {
+      await reply(ctx, '❌ 设置工作目录的模型仅管理员可用。');
+      return;
+    }
+    const name = parts[1] ?? '';
+    const value = parts.slice(2).join(' ').trim();
+    if (!name || !value) {
+      await reply(ctx, '用法：`/model ws <name> <model>` 或 `/model ws <name> reset`');
+      return;
+    }
+    const key = workspaceAliasKeys(ctx, name).find((k) => ctx.workspaces.getNamed(k) !== undefined);
+    if (!key) {
+      await reply(ctx, `未找到工作目录别名：\`${name}\``);
+      return;
+    }
+    if (value === 'reset') {
+      const cleared = ctx.workspaces.setNamedModel(key, null);
+      log.info('command', 'model-ws-reset', { scope: ctx.scope, name });
+      await reply(
+        ctx,
+        cleared ? `✅ 已清除 \`${name}\` 的模型设置。` : `\`${name}\` 本来就没设过模型。`,
+      );
+      return;
+    }
+    ctx.workspaces.setNamedModel(key, value);
+    log.info('command', 'model-ws-set', { scope: ctx.scope, name });
+    await reply(
+      ctx,
+      `✅ 已设置 \`${name}\` 的模型为 \`${value}\`\n（绑定它的新 session 生效;进行中的会话不受影响）`,
+    );
+    return;
+  }
+
+  const model = args.trim();
+  ctx.workspaces.setModel(ctx.scope, model);
+  log.info('command', 'model-set', { scope: ctx.scope });
+  await reply(
+    ctx,
+    `✅ 已设置当前会话的模型为 \`${model}\`\n（进行中的会话仍用旧模型;新 session 生效,可用 \`/new\` 立即生效）`,
+  );
+}
+
+async function showModelStatus(ctx: CommandContext): Promise<void> {
+  const scopeModel = ctx.workspaces.modelFor(ctx.scope);
+  let wsModel: string | undefined;
+  const cwd = effectiveWorkspaceCwd(ctx);
+  if (cwd) {
+    const workspace = await resolveWorkingDirectory(cwd);
+    if (workspace.ok) wsModel = ctx.workspaces.namedModelForCwd(workspace.cwdRealpath);
+  }
+  const profileModel = getProfileModel(ctx.controls.cfg);
+  const effective = scopeModel ?? wsModel ?? profileModel ?? undefined;
+  const source = scopeModel ? '会话' : wsModel ? '工作目录' : profileModel ? 'profile' : 'claude 默认';
+  const lines = [
+    `🤖 当前生效模型:${effective ? `\`${effective}\`（来源:${source}）` : 'claude 默认'}`,
+    `- 会话覆盖:${scopeModel ? `\`${scopeModel}\`` : '未设置'}`,
+    `- 工作目录:${wsModel ? `\`${wsModel}\`` : '未设置'}`,
+    `- profile 默认:${profileModel ? `\`${profileModel}\`` : '未设置'}`,
+  ];
+  const usage =
+    '\n\n用法:\n- `/model <name>` 当前会话设置模型\n- `/model reset` 清除会话设置\n- `/model ws <name> <model>` 设置命名工作目录的模型(管理员)\n- `/model ws <name> reset` 清除工作目录模型\n\n_注:进行中的会话继续用旧模型,新 session 生效;`/new` 立即生效_';
+  await reply(ctx, lines.join('\n') + usage);
 }
 
 async function handlePs(_args: string, ctx: CommandContext): Promise<void> {
