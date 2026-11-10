@@ -164,6 +164,18 @@ describe('profile store canonical serialization', () => {
     });
   });
 
+  it('round-trips the Claude launcher without dropping it on save', async () => {
+    const configPath = join(await tmpRoot(), 'config.json');
+    const profile = {
+      ...createDefaultProfileConfig({ agentKind: 'claude', accounts: { app } }),
+      claude: { binaryPath: '/usr/local/bin/claude-for-bridge' },
+    };
+    await saveRootConfig(createRootConfig('claude', profile), configPath);
+    const saved = JSON.parse(await readFile(configPath, 'utf8'));
+    expect(saved.profiles.claude.claude).toEqual(profile.claude);
+    expect((await loadRootConfig(configPath))?.profiles.claude).toHaveProperty('claude', profile.claude);
+  });
+
   it('marks newly created roots as already evaluated for permission default migration', () => {
     const profile = createDefaultProfileConfig({
       agentKind: 'claude',

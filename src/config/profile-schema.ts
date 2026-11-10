@@ -31,6 +31,10 @@ export interface SandboxConfig {
   maxMode: SandboxMode;
 }
 
+export interface ClaudeConfig {
+  binaryPath: string;
+}
+
 export interface CodexConfig {
   binaryPath: string;
   realpath?: string;
@@ -89,6 +93,7 @@ export interface ProfileConfig {
   sandbox: SandboxConfig;
   permissions: PermissionConfig;
   permissionSource?: PermissionSource;
+  claude?: ClaudeConfig;
   codex?: CodexConfig;
   attachments: AttachmentConfig;
   comments: CommentConfig;
@@ -115,6 +120,7 @@ export interface CreateDefaultProfileConfigInput {
   access?: Partial<ProfileAccess>;
   sandbox?: Partial<SandboxConfig>;
   permissions?: Partial<PermissionConfig>;
+  claude?: ClaudeConfig;
   codex?: CodexConfig;
   secrets?: SecretsConfig;
 }
@@ -149,6 +155,7 @@ export function normalizeProfileConfig(input: unknown): ProfileConfig {
     };
     sandbox?: Partial<SandboxConfig>;
     permissions?: Partial<PermissionConfig>;
+    claude?: unknown;
     codex?: CodexConfig & { flags?: unknown };
     attachments?: Partial<AttachmentConfig>;
     comments?: unknown;
@@ -191,6 +198,7 @@ export function normalizeProfileConfig(input: unknown): ProfileConfig {
     sandbox,
     permissions,
     permissionSource,
+    ...(raw.claude !== undefined ? { claude: normalizeClaude(raw.claude) } : {}),
     ...(raw.codex ? { codex: normalizeCodex(raw.codex) } : {}),
     attachments: {
       maxCount: numberOr(raw.attachments?.maxCount, 10),
@@ -267,6 +275,16 @@ function normalizeWorkspaces(input: {
     ? input.default.trim()
     : undefined;
   return defaultWorkspace ? { default: defaultWorkspace } : {};
+}
+
+function normalizeClaude(input: unknown): ClaudeConfig {
+  const binaryPath = input && typeof input === 'object' && !Array.isArray(input)
+    ? (input as { binaryPath?: unknown }).binaryPath
+    : undefined;
+  if (typeof binaryPath !== 'string' || !binaryPath.trim()) {
+    throw new Error('claude.binaryPath must be a non-empty string');
+  }
+  return { binaryPath: binaryPath.trim() };
 }
 
 function normalizeCodex(input: CodexConfig & { flags?: unknown }): CodexConfig {

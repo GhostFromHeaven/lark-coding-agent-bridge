@@ -1,7 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import * as preflight from '../../../src/agent/preflight.js';
 import {
   assertReconnectAgentKindUnchanged,
   createRuntimeAgent,
@@ -9,7 +10,28 @@ import {
 import { createDefaultProfileConfig } from '../../../src/config/profile-schema.js';
 import { createRuntimeProfileConfig } from '../../../src/runtime/profile-runtime.js';
 
+afterEach(() => vi.restoreAllMocks());
+
 describe('start runtime agent factory', () => {
+  it.each(['pty', 'headless'] as const)('passes the configured binary to the Claude %s adapter', async (claudeDriver) => {
+    const check = vi.spyOn(preflight, 'checkAgentAvailability').mockResolvedValue({ ok: true });
+    const profile = {
+      ...createDefaultProfileConfig({ agentKind: 'claude', accounts: appAccount() }),
+      claude: { binaryPath: '/usr/local/bin/claude-for-bridge' },
+    };
+    const agent = createRuntimeAgent(profile, { profileDir: tmpdir() }, {
+      accounts: appAccount(), preferences: { claudeDriver },
+    });
+    try {
+      await agent.checkAvailability?.();
+      expect(check).toHaveBeenCalledWith(expect.objectContaining({
+        binaryPath: profile.claude.binaryPath,
+        command: profile.claude.binaryPath,
+      }));
+    } finally {
+      await agent.shutdown?.();
+    }
+  });
   it('keeps Claude as the default runtime agent', () => {
     const agent = createRuntimeAgent(
       createDefaultProfileConfig({

@@ -35,6 +35,31 @@ describe('profile schema', () => {
     });
   });
 
+  it('preserves a custom Claude binary without unknown launcher fields', () => {
+    const cfg = normalizeProfileConfig({
+      schemaVersion: 2,
+      agentKind: 'claude',
+      accounts: { app },
+      claude: { binaryPath: ' /usr/local/bin/claude-for-bridge ', flags: ['--other'] },
+    });
+
+    expect(cfg).toHaveProperty('claude', { binaryPath: '/usr/local/bin/claude-for-bridge' });
+  });
+
+  it('does not add a launcher to existing Claude profiles', () => {
+    expect(createDefaultProfileConfig({ agentKind: 'claude', accounts: { app } }))
+      .not.toHaveProperty('claude');
+  });
+
+  it.each([null, [], {}, { binaryPath: '' }, { binaryPath: 42 }])(
+    'rejects invalid explicit Claude launcher config: %j',
+    (claude) => {
+      expect(() => normalizeProfileConfig({
+        schemaVersion: 2, agentKind: 'claude', accounts: { app }, claude,
+      })).toThrow(/claude.binaryPath/);
+    },
+  );
+
   it('defaults Codex sandbox to danger-full-access to match Claude bridge local tool access', () => {
     const cfg = createDefaultProfileConfig({
       agentKind: 'codex',

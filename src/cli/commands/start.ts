@@ -465,9 +465,10 @@ export function createRuntimeAgent(
     });
   }
   if (cfg && getClaudeDriver(cfg) === 'headless') {
-    return new ClaudeHeadlessAdapter({ larkChannel });
+    return new ClaudeHeadlessAdapter({ binary: profileConfig.claude?.binaryPath, larkChannel });
   }
   return new ClaudePtyAdapter({
+    binary: profileConfig.claude?.binaryPath,
     larkChannel,
     ...(cfg ? { maxSilenceMs: getTurnSilenceTimeoutMs(cfg), maxTurnMs: getTurnMaxMs(cfg) } : {}),
   });
