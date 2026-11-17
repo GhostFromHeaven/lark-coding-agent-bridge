@@ -136,6 +136,8 @@ export interface AppPreferences {
    * acceptable) while picking `compact` for groups (where it isn't).
    */
   toolCallDisplayInGroups?: ToolCallDisplay;
+  /** Show final elapsed time on cards. Default true; excludes queue time. */
+  showRunDurationInGroups?: boolean;
   /**
    * Cap on concurrent claude runs across all chats / topics. Excess runs
    * queue FIFO. Default 10. Mostly relevant for topic groups where each

@@ -1,5 +1,6 @@
 import type { Block, FooterStatus, RunState, ToolEntry } from './run-state';
 import { runningToolPanelTitle, toolBodyMd, toolHeaderText } from './tool-render';
+import { runDurationText } from './run-duration';
 
 const REASONING_MAX = 1500;
 const COLLAPSE_TOOL_THRESHOLD = 3;
@@ -17,6 +18,7 @@ type Group = ToolGroup | TextGroup;
 export type ToolDisplayMode = 'full' | 'compact' | 'hide';
 
 export interface RunCardRenderOptions {
+  showRunDuration?: boolean;
   signCallback?: (action: string) => string;
   /**
    * Compact mode (`showToolCalls: false`): no tool-call history, no
@@ -95,7 +97,7 @@ export function renderCard(state: RunState, options: RunCardRenderOptions = {}):
     elements.push(stopButtonRow(options));
   }
 
-  const usageNote = usageFooter(state.usage);
+  const usageNote = usageFooter(state.usage, options.showRunDuration ? runDurationText(state) : undefined);
   if (usageNote) elements.push(usageNote);
 
   if (options.feedback && state.terminal === 'done') {
@@ -139,14 +141,14 @@ function feedbackRow(feedback: NonNullable<RunCardRenderOptions['feedback']>): o
 }
 
 /** Bottom-of-card token usage line, e.g. `📊 tokens 输入 1.2k · 输出 856 · $0.03`. */
-function usageFooter(usage: RunState['usage']): object | undefined {
-  if (!usage) return undefined;
+function usageFooter(usage: RunState['usage'], duration?: string): object | undefined {
   const parts: string[] = [];
-  if (usage.inputTokens !== undefined) parts.push(`输入 ${formatTokens(usage.inputTokens)}`);
-  if (usage.outputTokens !== undefined) parts.push(`输出 ${formatTokens(usage.outputTokens)}`);
-  if (usage.costUsd !== undefined) parts.push(`$${usage.costUsd.toFixed(2)}`);
-  if (parts.length === 0) return undefined;
-  return noteMd(`📊 tokens ${parts.join(' · ')}`);
+  if (usage?.inputTokens !== undefined) parts.push(`输入 ${formatTokens(usage.inputTokens)}`);
+  if (usage?.outputTokens !== undefined) parts.push(`输出 ${formatTokens(usage.outputTokens)}`);
+  if (usage?.costUsd !== undefined) parts.push(`$${usage.costUsd.toFixed(2)}`);
+  const usageText = parts.length > 0 ? `📊 tokens ${parts.join(' · ')}` : undefined;
+  if (!usageText && !duration) return undefined;
+  return noteMd([usageText, duration].filter(Boolean).join(' · '));
 }
 
 function formatTokens(n: number): string {

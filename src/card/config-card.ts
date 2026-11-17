@@ -8,6 +8,7 @@ export interface ConfigFormOpts {
   toolCallDisplay: ToolCallDisplay;
   /** Group-specific override. `'inherit'` means "use the base value". */
   toolCallDisplayInGroups: ToolCallDisplay | 'inherit';
+  showRunDurationInGroups?: boolean;
   maxConcurrentRuns: number;
   /** 0 means "disabled". */
   runIdleTimeoutMinutes: number;
@@ -162,6 +163,19 @@ export function configFormCard(opts: ConfigFormOpts): object {
                 { text: { tag: 'plain_text', content: '完整' }, value: 'full' },
                 { text: { tag: 'plain_text', content: '紧凑' }, value: 'compact' },
                 { text: { tag: 'plain_text', content: '隐藏' }, value: 'hide' },
+              ],
+            },
+            {
+              tag: 'markdown',
+              content: '\n**卡片总执行时间**',
+            },
+            {
+              tag: 'select_static',
+              name: 'show_run_duration_in_groups',
+              initial_option: opts.showRunDurationInGroups === true ? 'yes' : 'no',
+              options: [
+                { text: { tag: 'plain_text', content: '关闭(默认)' }, value: 'no' },
+                { text: { tag: 'plain_text', content: '显示' }, value: 'yes' },
               ],
             },
             {
@@ -341,6 +355,7 @@ export function configSavedCard(opts: ConfigFormOpts): object {
             `**消息回复方式**:${replyLabel}\n` +
             `**工具调用显示**:\`${toolDisplayLabel(opts.toolCallDisplay)}\`\n` +
             `**群里的工具调用显示**:\`${groupOverrideLabel}\`\n` +
+            `**卡片总执行时间**:\`${opts.showRunDurationInGroups === true ? '显示' : '关闭'}\`\n` +
             `**并发上限**:\`${opts.maxConcurrentRuns}\`\n` +
             `**run 探活**:\`${opts.runIdleTimeoutMinutes > 0 ? `${opts.runIdleTimeoutMinutes} 分钟` : '关闭'}\`\n` +
             `**群里需要 @ bot**:\`${opts.requireMentionInGroup ? '是' : '否'}\`\n` +

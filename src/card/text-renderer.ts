@@ -1,8 +1,10 @@
 import type { Block, RunState, ToolEntry } from './run-state';
 import type { ToolDisplayMode } from './run-renderer';
 import { toolHeaderText } from './tool-render';
+import { runDurationText } from './run-duration';
 
 export interface RenderTextOptions {
+  showRunDuration?: boolean;
   /**
    * Tool-call rendering mode for the markdown / text reply path.
    *   - `full` (default): one quoted line per tool (existing behavior)
@@ -74,6 +76,20 @@ export function renderText(state: RunState, options: RenderTextOptions = {}): st
     }
   }
 
+  const duration = options.showRunDuration ? runDurationText(state) : undefined;
+  if (duration) {
+    const usage = state.usage;
+    const tokenParts = [
+      usage?.inputTokens !== undefined ? `输入 ${formatTokens(usage.inputTokens)}` : undefined,
+      usage?.outputTokens !== undefined ? `输出 ${formatTokens(usage.outputTokens)}` : undefined,
+      usage?.costUsd !== undefined ? `$${usage.costUsd.toFixed(2)}` : undefined,
+    ].filter((part): part is string => part !== undefined);
+    if (tokenParts.length > 0) {
+      parts.push(`📊 tokens ${tokenParts.join(' · ')} · ${duration}`);
+    } else {
+      parts.push(`_${duration}_`);
+    }
+  }
   return parts.join('\n\n');
 }
 
@@ -128,6 +144,11 @@ function toolLine(tool: ToolEntry): string {
  * name) so the user still has live progress visibility even though the
  * earlier tools collapsed.
  */
+function formatTokens(n: number): string {
+  if (n < 1000) return String(n);
+  return `${(n / 1000).toFixed(1)}k`;
+}
+
 function compactToolSummary(tools: ToolEntry[]): string {
   if (tools.length === 0) return '';
   const last = tools[tools.length - 1]!;

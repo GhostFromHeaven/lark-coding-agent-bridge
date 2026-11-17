@@ -62,6 +62,7 @@ describe('profile-aware account and config commands', () => {
       message_reply: 'text',
       tool_call_display: 'hide',
       tool_call_display_in_groups: 'compact',
+      show_run_duration_in_groups: 'yes',
       max_concurrent_runs: '7',
       run_idle_timeout_minutes: '15',
       require_mention_in_group: 'no',
@@ -79,6 +80,7 @@ describe('profile-aware account and config commands', () => {
       messageReplyMigrated: true,
       toolCallDisplay: 'hide',
       toolCallDisplayInGroups: 'compact',
+      showRunDurationInGroups: true,
       maxConcurrentRuns: 7,
       runIdleTimeoutMinutes: 15,
     });
@@ -93,6 +95,24 @@ describe('profile-aware account and config commands', () => {
     });
     expect(getRequireMentionInGroup(runtimeProfileConfig(root, 'claude'))).toBe(false);
     expect((root as unknown as { accounts?: unknown }).accounts).toBeUndefined();
+  });
+
+  it('preserves the duration setting for older forms and accepts disabling it', async () => {
+    vi.useFakeTimers();
+    const h = await createHarness();
+    await h.command('/config submit', { show_run_duration_in_groups: 'yes' });
+    await waitForRoot(h.rootDir, (root) =>
+      root.profiles.claude?.preferences.showRunDurationInGroups === true,
+    );
+    await h.command('/config submit', { message_reply: 'markdown' });
+    const preserved = await waitForRoot(h.rootDir, (root) =>
+      root.profiles.claude?.preferences.messageReply === 'markdown',
+    );
+    expect(preserved.profiles.claude?.preferences.showRunDurationInGroups).toBe(true);
+    await h.command('/config submit', { show_run_duration_in_groups: 'no' });
+    await waitForRoot(h.rootDir, (root) =>
+      root.profiles.claude?.preferences.showRunDurationInGroups === false,
+    );
   });
 
   it('does not save a lark-cli identity change when applying the runtime policy fails', async () => {

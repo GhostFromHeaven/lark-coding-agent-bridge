@@ -35,6 +35,8 @@ export interface RunState {
   idleTimeoutMinutes?: number;
   /** Latest cumulative token usage from the agent's `usage` events, if any. */
   usage?: UsageTotals;
+  /** Elapsed stream-processing time, frozen at the first terminal state. */
+  durationMs?: number;
 }
 
 export const initialState: RunState = {

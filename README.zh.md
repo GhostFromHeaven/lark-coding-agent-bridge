@@ -159,6 +159,8 @@ lark-channel-bridge profile export <name> --include-secrets --yes
 | `/doctor [描述]` | 执行低敏诊断 |
 | `/help` | 帮助卡片 |
 
+卡片默认显示总耗时；如需关闭，可在 `/config` 中将「卡片总执行时间」设为「关闭」。群、话题群和私聊的交互卡片、消息卡片会在结束时显示耗时（如 `耗时4m 12s`）。对应 profile 配置为 `preferences.showRunDurationInGroups: true`（字段名为兼容历史配置保留）。计时从开始消费 agent 事件流到完成、失败或中断，包含工具执行和等待用户回答，不包含排队、前置准备及最终卡片发送；纯文本回复不显示。
+
 私聊不需要 @。群和话题群默认必须 `@bot`；`@all` 会被忽略。支持的云文档评论里 @bot 就会触发回复。
 
 ## lark-cli 身份策略

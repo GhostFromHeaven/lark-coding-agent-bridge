@@ -2030,6 +2030,7 @@ async function showConfigForm(ctx: CommandContext): Promise<void> {
     messageReply: getMessageReplyMode(ctx.controls.cfg),
     toolCallDisplay: getToolCallDisplay(ctx.controls.cfg, false),
     toolCallDisplayInGroups: resolveGroupDisplayPref(ctx.controls.cfg),
+    showRunDurationInGroups: ctx.controls.cfg.preferences?.showRunDurationInGroups === true,
     maxConcurrentRuns: getMaxConcurrentRuns(ctx.controls.cfg),
     runIdleTimeoutMinutes: ms ? Math.round(ms / 60_000) : 0,
     requireMentionInGroup: getRequireMentionInGroup(ctx.controls.cfg),
@@ -2086,6 +2087,12 @@ async function submitConfig(ctx: CommandContext): Promise<void> {
   const rawToolDisplay = String(fv.tool_call_display ?? '').trim();
   const toolCallDisplay: ToolCallDisplay = parseToolCallDisplay(rawToolDisplay, currentToolCallDisplay);
   const rawToolDisplayGroups = String(fv.tool_call_display_in_groups ?? '').trim();
+  const rawShowDuration = String(fv.show_run_duration_in_groups ?? '').trim();
+  const showRunDurationInGroups = rawShowDuration === 'yes'
+    ? true
+    : rawShowDuration === 'no'
+      ? false
+      : ctx.controls.cfg.preferences?.showRunDurationInGroups === true;
   // `'inherit'` clears the group override; valid tri-state values set it; an
   // empty / unexpected value keeps whatever's currently stored.
   let toolCallDisplayInGroups: ToolCallDisplay | undefined;
@@ -2172,6 +2179,7 @@ async function submitConfig(ctx: CommandContext): Promise<void> {
       messageReplyMigrated: true,
       toolCallDisplay,
       toolCallDisplayInGroups,
+      showRunDurationInGroups,
       // Drop the legacy boolean — `toolCallDisplay` is now canonical. Leaving
       // both on disk would let stale code paths read inconsistent values.
       showToolCalls: undefined,
@@ -2240,6 +2248,7 @@ async function submitConfig(ctx: CommandContext): Promise<void> {
         messageReply,
         toolCallDisplay,
         toolCallDisplayInGroups: toolCallDisplayInGroups ?? 'inherit',
+        showRunDurationInGroups,
         maxConcurrentRuns,
         runIdleTimeoutMinutes,
         requireMentionInGroup,

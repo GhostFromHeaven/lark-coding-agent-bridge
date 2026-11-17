@@ -31,13 +31,16 @@ interface FakeChannel {
   on(handlers: FakeChannel['handlers']): void;
   connect(): Promise<void>;
   disconnect(): Promise<void>;
-  getChatMode(): Promise<'group'>;
+  getChatMode(): Promise<'group' | 'p2p' | 'topic'>;
   getConnectionStatus(): { state: 'connected'; reconnectAttempts: number };
   createCard(card: unknown): Promise<{ cardId: string }>;
   updateCardById(cardId: string, card: unknown, sequence?: number): Promise<void>;
   send(chatId: string, content: unknown, options?: unknown): Promise<{ messageId: string }>;
   addReaction(): Promise<string>;
   removeReaction(): Promise<void>;
+  stream(chatId: string, content: {
+    markdown: (ctrl: { setContent(value: string): Promise<void> }) => Promise<void>;
+  }, options?: unknown): Promise<{ messageId: string }>;
 }
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -50,6 +53,82 @@ afterEach(async () => {
 });
 
 describe('card usage footer wiring', () => {
+  it.each([
+    { mode: 'card', enabled: true, chatType: 'group', terminal: 'done', visible: true },
+    { mode: 'card', enabled: true, chatType: 'group', terminal: 'done', visible: true, topic: true },
+    { mode: 'markdown', enabled: true, chatType: 'group', terminal: 'done', visible: true },
+    { mode: 'card', enabled: true, chatType: 'group', terminal: 'error', visible: true },
+    { mode: 'card', enabled: false, chatType: 'group', terminal: 'done', visible: false },
+    { mode: 'card', enabled: undefined, chatType: 'group', terminal: 'done', visible: false },
+    { mode: 'card', enabled: true, chatType: 'p2p', terminal: 'done', visible: true },
+  ] as const)('duration wiring: $mode / enabled=$enabled / $chatType / $terminal / topic=$topic', async (spec) => {
+    const { mode, enabled, chatType, terminal, visible } = spec;
+    const tmp = await createTmpProfile('card-duration-');
+    const base = createDefaultProfileConfig({
+      agentKind: 'claude',
+      accounts: { app: { id: 'cli_test', secret: 'secret', tenant: 'feishu' } },
+      access: { allowedUsers: ['ou_user'], allowedChats: ['oc_chat'] },
+      preferences: { messageReply: mode, showRunDurationInGroups: enabled },
+    });
+    const profileConfig = { ...base, workspaces: { default: await realpath(tmp.workspace) } };
+    const sessions = new SessionStore(join(tmp.profile, 'sessions.json'));
+    const workspaces = new WorkspaceStore(join(tmp.profile, 'workspaces.json'));
+    const agent = new FakeAgentAdapter({
+      id: 'claude',
+      events: [
+        { type: 'text', delta: '最终答案' },
+        terminal === 'error'
+          ? { type: 'error', message: 'agent failed', terminationReason: 'failed' }
+          : { type: 'done', terminationReason: 'normal' },
+      ],
+    });
+    const originalRun = agent.run.bind(agent);
+    let offset = 0;
+    const realNow = Date.now.bind(Date);
+    vi.spyOn(Date, 'now').mockImplementation(() => realNow() + offset);
+    vi.spyOn(agent, 'run').mockImplementation((options) => {
+      const run = originalRun(options);
+      return {
+        ...run,
+        runId: run.runId,
+        stop: () => run.stop(),
+        waitForExit: (ms) => run.waitForExit(ms),
+        events: (async function* () {
+          for await (const event of run.events) {
+            if (event.type === 'done' || event.type === 'error') offset = 83_000;
+            yield event;
+          }
+        })(),
+      };
+    });
+    const channel = createChannel('topic' in spec ? 'topic' : chatType);
+    const updateCard = channel.updateCardById.bind(channel);
+    vi.spyOn(channel, 'updateCardById').mockImplementation(async (...args) => {
+      await updateCard(...args);
+      // A later refresh must reuse the original elapsed time.
+      if (JSON.stringify(args[1]).includes('总执行时间')) offset += 60_000;
+    });
+    sdkMock.channel = channel;
+    cleanups.push(async () => {
+      await Promise.all([sessions.flush(), workspaces.flush()]);
+      await tmp.cleanup();
+    });
+    const bridge = await startChannel({
+      cfg: profileConfig, agent, sessions, workspaces, controls: makeControls(profileConfig),
+    });
+    cleanups.push(() => bridge.disconnect());
+    await channel.handlers.message?.({
+      ...makeMessage(), chatType, mentionedBot: true,
+      ...('topic' in spec ? { threadId: 'omt_topic' } : {}),
+    } as NormalizedMessage);
+    // The duration arrives on the final flush; wait until all state has drained.
+    await waitFor(() => channel.cardUpdates.some((card) => JSON.stringify(card).includes('最终答案')));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const finalCard = JSON.stringify(channel.cardUpdates.at(-1));
+    if (visible) expect(finalCard).toContain('耗时1m 23s');
+    else expect(finalCard).not.toContain('总执行时间');
+  });
+
   it('renders the token footer on the final card after a usage event', async () => {
     const tmp = await createTmpProfile('card-usage-footer-');
     const workspace = await realpath(tmp.workspace);
@@ -111,7 +190,7 @@ describe('card usage footer wiring', () => {
   });
 });
 
-function createChannel(): FakeChannel {
+function createChannel(mode: 'group' | 'p2p' | 'topic' = 'group'): FakeChannel {
   const handlers: FakeChannel['handlers'] = {};
   const cardUpdates: unknown[] = [];
   const channel: FakeChannel = {
@@ -129,7 +208,7 @@ function createChannel(): FakeChannel {
     async connect() {},
     async disconnect() {},
     async getChatMode() {
-      return 'group';
+      return mode;
     },
     getConnectionStatus() {
       return { state: 'connected', reconnectAttempts: 0 };
@@ -151,6 +230,14 @@ function createChannel(): FakeChannel {
       return 'r1';
     },
     async removeReaction() {},
+    async stream(_chatId, content) {
+      await content.markdown({
+        async setContent(markdown) {
+          cardUpdates.push({ markdown });
+        },
+      });
+      return { messageId: 'om_reply_1' };
+    },
   };
   return channel;
 }
@@ -187,9 +274,9 @@ function makeMessage(): NormalizedMessage {
 }
 
 async function waitFor(pred: () => boolean, timeoutMs = 3000): Promise<void> {
-  const start = Date.now();
+  const start = performance.now();
   while (!pred()) {
-    if (Date.now() - start > timeoutMs) throw new Error('waitFor timed out');
+    if (performance.now() - start > timeoutMs) throw new Error('waitFor timed out');
     await new Promise((r) => setTimeout(r, 10));
   }
 }

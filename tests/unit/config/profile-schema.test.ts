@@ -136,6 +136,7 @@ describe('profile schema', () => {
     });
 
     expect(cfg.preferences).toEqual({
+      showRunDurationInGroups: true,
       showToolCalls: false,
     });
   });

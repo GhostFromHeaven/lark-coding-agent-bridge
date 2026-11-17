@@ -845,6 +845,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
   // applies the mode; `/config` changes take effect on the next user message.
   const isGroupChat = mode !== 'p2p';
   const toolDisplay = getToolCallDisplay(controls.cfg, isGroupChat);
+  const showRunDuration = controls.cfg.preferences?.showRunDurationInGroups === true;
   log.info('flush', 'tool-display', { mode: toolDisplay, isGroup: isGroupChat });
   const signOptions = callbackAuth
     ? {
@@ -868,10 +869,14 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
   const cardRenderOptions = (counts?: { up: number; down: number }): RunCardRenderOptions => ({
     ...signOptions,
     toolDisplay,
+    showRunDuration,
     staticMode: true,
     ...(ledger ? { feedback: { entryId: execution.runId, ...(counts ? { counts } : {}) } } : {}),
   });
-  const textRenderOptions: RenderTextOptions = { toolDisplay };
+  const textRenderOptions: RenderTextOptions = {
+    toolDisplay,
+    showRunDuration: replyMode === 'markdown' && showRunDuration,
+  };
 
   // Bind an AskQuestionFlow to this run so the card dispatcher can route
   // AskUserQuestion button clicks back here. Only when callbackAuth is
@@ -1279,6 +1284,9 @@ async function processAgentStream(
         // again.
         const prev = postAskState;
         postAskState = reduce(postAskState, evt);
+        if (postAskState.terminal !== 'running' && postAskState.durationMs === undefined) {
+          postAskState = { ...postAskState, durationMs: Math.max(0, Date.now() - runStart) };
+        }
         if (postAskState.footer !== prev.footer || postAskState.terminal !== prev.terminal) {
           log.info('card', 'post-ask-transition', {
             footer: postAskState.footer,
@@ -1301,6 +1309,9 @@ async function processAgentStream(
       const prevTerminal = state.terminal;
       const prevFooter = state.footer;
       state = reduce(state, evt);
+      if (state.terminal !== 'running' && state.durationMs === undefined) {
+        state = { ...state, durationMs: Math.max(0, Date.now() - runStart) };
+      }
       if (state.footer !== prevFooter || state.terminal !== prevTerminal) {
         log.info('card', 'transition', { footer: state.footer, terminal: state.terminal });
       }
@@ -1326,6 +1337,9 @@ async function processAgentStream(
     } else {
       state = finalizeIfRunning(state);
     }
+  }
+  if (state.durationMs === undefined) {
+    state = { ...state, durationMs: Math.max(0, Date.now() - runStart) };
   }
   log.info('card', 'final', { terminal: state.terminal, interrupted: handle.interrupted });
   reportMetric('run_e2e_ms', Date.now() - runStart, { terminal: state.terminal });

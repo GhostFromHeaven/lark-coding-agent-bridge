@@ -246,7 +246,10 @@ function normalizePreferences(
       messageReply,
     };
   }
-  return rest;
+  return {
+    showRunDurationInGroups: true,
+    ...rest,
+  };
 }
 
 function isMessageReply(value: unknown): value is MessageReplyMode {

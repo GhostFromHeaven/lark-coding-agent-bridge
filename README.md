@@ -163,6 +163,8 @@ If a profile was created with the wrong agent kind, stop or unregister any match
 | `/doctor [description]` | Run low-sensitive diagnostics |
 | `/help` | Help card |
 
+Cards show elapsed time by default. Disable **卡片总执行时间** in `/config` if needed (the legacy profile preference `preferences.showRunDurationInGroups: true` is retained for compatibility). Interactive and markdown cards in groups, topics, and DMs show a footer such as `耗时4m 12s`. Timing runs from agent stream consumption to completion, failure, or interruption, including tools and time waiting for user answers; it excludes queueing, preparation, and final card delivery. Plain-text replies do not show it.
+
 DMs do not require an @ mention. Groups and topic groups require `@bot` by default; `@all` is ignored. Cloud-doc comments in supported document types run when the bot is mentioned.
 
 ## lark-cli identity policy

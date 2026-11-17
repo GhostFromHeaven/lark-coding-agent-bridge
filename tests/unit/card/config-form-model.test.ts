@@ -18,6 +18,15 @@ const baseOpts = {
 };
 
 describe('config form model field', () => {
+  it('offers and preselects the card duration setting', () => {
+    const card = configFormCard({ ...baseOpts, model: '', showRunDurationInGroups: true }) as {
+      body: { elements: Array<{ tag: string; elements?: Array<{ name?: string; initial_option?: string }> }> };
+    };
+    const form = card.body.elements.find((element) => element.tag === 'form');
+    expect(form?.elements?.find((element) => element.name === 'show_run_duration_in_groups')?.initial_option).toBe('yes');
+    expect(JSON.stringify(configSavedCard({ ...baseOpts, model: '', showRunDurationInGroups: true }))).toContain('**卡片总执行时间**:`显示`');
+  });
+
   it('renders a model input prefilled with the profile model', () => {
     const card = configFormCard({ ...baseOpts, model: 'sonnet' });
     const text = JSON.stringify(card);
